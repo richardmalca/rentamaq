@@ -2,6 +2,7 @@ package pe.rentamaq
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -14,7 +15,7 @@ import pe.rentamaq.feature.explore.CatalogViewModel
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.BLACK))
         setContent {
             val model = viewModel {
                 val database = Room.databaseBuilder(applicationContext, RentamaqDatabase::class.java, "rentamaq.db").build()

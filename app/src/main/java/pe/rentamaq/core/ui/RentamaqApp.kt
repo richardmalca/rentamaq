@@ -2,7 +2,6 @@ package pe.rentamaq.core.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,28 +11,43 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.core.data.local.Booking
 import pe.rentamaq.core.data.local.Equipment
 import pe.rentamaq.feature.explore.CatalogViewModel
+import pe.rentamaq.feature.explore.CatalogCarousel
+import pe.rentamaq.feature.explore.CatalogSearch
+import pe.rentamaq.feature.explore.CatalogResults
+import pe.rentamaq.feature.explore.EquipmentCard
+import pe.rentamaq.feature.explore.EquipmentPhoto
+import pe.rentamaq.feature.explore.EquipmentType
+import pe.rentamaq.feature.explore.PhotoCredits
+import pe.rentamaq.feature.explore.type
+import java.text.Normalizer
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.ResolverStyle
 
-private val background = Color(0xFFF7F6EF)
-private val accent = Color(0xFFF1CD56)
-private val ink = Color(0xFF242619)
+private val background = Color(0xFFFAF9F5)
+private val accent = Color(0xFFF6D45E)
+private val ink = Color(0xFF232518)
 private val zones = listOf("Norte", "Centro", "Sur")
 private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm").withResolverStyle(ResolverStyle.STRICT)
 private val lima = ZoneId.of("America/Lima")
+private val combiningMarks = Regex("\\p{M}+")
+
+private fun String.searchKey() = Normalizer.normalize(this, Normalizer.Form.NFD)
+    .replace(combiningMarks, "").lowercase()
 
 @Composable
 fun RentamaqApp(model: CatalogViewModel) {
@@ -42,16 +56,26 @@ fun RentamaqApp(model: CatalogViewModel) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<Int?>(null) }
     var zone by rememberSaveable { mutableStateOf<String?>(null) }
-    var showMap by rememberSaveable { mutableStateOf(false) }
+    var search by rememberSaveable { mutableStateOf("") }
+    var type by rememberSaveable { mutableStateOf<EquipmentType?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val selected = equipment.find { it.id == selectedId }
+    val query = search.trim().searchKey()
+    val filtered = query.isNotEmpty() || type != null || zone != null
+    val matches = equipment.filter {
+        (zone == null || it.zone == zone) && (type == null || it.type() == type) &&
+            (it.name.searchKey().contains(query) || it.description.searchKey().contains(query))
+    }
 
     BackHandler(tab == 0 && selectedId != null) { selectedId = null }
 
-    MaterialTheme(colorScheme = lightColorScheme(primary = ink, surface = Color.White, background = background,
-        secondaryContainer = accent, onSecondaryContainer = ink, primaryContainer = accent, onPrimaryContainer = ink)) {
+    MaterialTheme(colorScheme = lightColorScheme(
+        primary = ink, surface = Color.White, background = background,
+        secondaryContainer = accent, onSecondaryContainer = ink, primaryContainer = accent,
+        onPrimaryContainer = ink, surfaceVariant = Color(0xFFF4F1E7), outlineVariant = Color(0xFFE7E3D9)
+    )) {
         Scaffold(
             containerColor = background,
             snackbarHost = { SnackbarHost(snackbar) },
@@ -73,35 +97,54 @@ fun RentamaqApp(model: CatalogViewModel) {
                 contentPadding = PaddingValues(20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                item { Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium) }
+                item { Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
                 when (tab) {
                     0 -> if (selected == null) {
                         item {
                             Text(stringResource(R.string.location), style = MaterialTheme.typography.labelMedium)
-                            Text(stringResource(R.string.headline), style = MaterialTheme.typography.headlineLarge)
+                            Text(stringResource(R.string.headline), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                         }
                         item {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilterChip(!showMap, { showMap = false }, { Text(stringResource(R.string.list)) })
-                                FilterChip(showMap, { showMap = true }, { Text(stringResource(R.string.map)) })
-                            }
-                            if (showMap) ZoneMap(zone) { zone = it }
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                FilterChip(zone == null, { zone = null }, { Text(stringResource(R.string.all_zones)) })
-                                zones.forEach { option ->
-                                    FilterChip(zone == option, { zone = option }, { Text(option) })
-                                }
+                            CatalogSearch(search, { search = it }, type, zone, zones) { nextType, nextZone ->
+                                type = nextType
+                                zone = nextZone
                             }
                         }
-                        items(equipment.filter { zone == null || it.zone == zone }, key = { it.id }) { machine ->
-                            EquipmentCard(machine) { selectedId = machine.id }
+                        if (filtered) {
+                            item {
+                                CatalogResults(matches.size) {
+                                    search = ""
+                                    type = null
+                                    zone = null
+                                }
+                            }
+                            if (matches.isEmpty()) item { Text(stringResource(R.string.no_equipment)) }
+                            items(matches, key = { it.id }) { machine ->
+                                EquipmentCard(machine) { selectedId = machine.id }
+                            }
+                        } else if (equipment.isNotEmpty()) {
+                            item {
+                                CatalogCarousel(R.string.featured_equipment, equipment.take(2), compact = false) { selectedId = it }
+                            }
+                            val recent = equipment.drop(2).asReversed()
+                            if (recent.isNotEmpty()) item {
+                                CatalogCarousel(R.string.recent_listings, recent, compact = true) { selectedId = it }
+                            }
                         }
                     } else {
                         item(key = selected.id) {
+                            var showZone by rememberSaveable { mutableStateOf(false) }
                             TextButton(onClick = { selectedId = null }) { Text(stringResource(R.string.cancel)) }
+                            EquipmentPhoto(selected, Modifier.height(190.dp).clip(RoundedCornerShape(20.dp)))
+                            Text(stringResource(R.string.photo_label), style = MaterialTheme.typography.bodySmall)
+                            Spacer(Modifier.height(12.dp))
                             Text(selected.name, style = MaterialTheme.typography.headlineSmall)
                             Text(selected.description)
-                            Text(selected.zone)
+                            Text(stringResource(R.string.zone_label, selected.zone))
+                            TextButton(onClick = { showZone = !showZone }) {
+                                Text(stringResource(if (showZone) R.string.hide_zone else R.string.show_zone))
+                            }
+                            if (showZone) ZoneMap(selected.zone)
                             Text(stringResource(R.string.rate, selected.hourlyRate, selected.dailyRate))
                             BookingForm(selected) { booking ->
                                 model.reserve(booking) { id ->
@@ -137,6 +180,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                         Spacer(Modifier.height(16.dp))
                         Text(stringResource(R.string.demo), style = MaterialTheme.typography.titleLarge)
                         Text(stringResource(R.string.demo_message))
+                        PhotoCredits()
                     }
                 }
             }
@@ -145,7 +189,7 @@ fun RentamaqApp(model: CatalogViewModel) {
 }
 
 @Composable
-private fun ZoneMap(selected: String?, onSelect: (String) -> Unit) {
+private fun ZoneMap(selected: String) {
     Column(
         Modifier.fillMaxWidth().background(Color(0xFFE8EDDF), RoundedCornerShape(20.dp)).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -153,25 +197,12 @@ private fun ZoneMap(selected: String?, onSelect: (String) -> Unit) {
         Text(stringResource(R.string.map_hint), style = MaterialTheme.typography.labelLarge)
         zones.forEachIndexed { index, zone ->
             Surface(
-                onClick = { onSelect(zone) },
                 modifier = Modifier.fillMaxWidth(0.86f + 0.06f * index),
                 shape = RoundedCornerShape(28.dp, 14.dp, 36.dp, 12.dp),
                 color = if (zone == selected) accent else Color(0xFFD0DAC6)
             ) {
                 Text(zone, Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
             }
-        }
-    }
-}
-
-@Composable
-private fun EquipmentCard(machine: Equipment, onOpen: () -> Unit) {
-    Card(onClick = onOpen, colors = CardDefaults.cardColors(containerColor = Color.White)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(machine.zone, style = MaterialTheme.typography.labelLarge)
-            Text(machine.name, style = MaterialTheme.typography.titleLarge)
-            Text(machine.description, style = MaterialTheme.typography.bodyMedium)
-            Text(stringResource(R.string.rate, machine.hourlyRate, machine.dailyRate))
         }
     }
 }
