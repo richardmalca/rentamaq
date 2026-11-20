@@ -5,6 +5,7 @@ import android.app.TimePickerDialog
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -31,9 +32,10 @@ import java.time.Duration
 import java.time.LocalDateTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 private val lima = ZoneId.of("America/Lima")
-private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu")
+private val dateFormat = DateTimeFormatter.ofPattern("EEE d 'de' MMM", Locale.forLanguageTag("es-PE"))
 private val timeFormat = DateTimeFormatter.ofPattern("HH:mm")
 private val bookingFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm")
 
@@ -88,9 +90,6 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
                 Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
                     HorizontalDivider()
                     Column(Modifier.padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        if (step == 1 && start < end) {
-                            Text(stringResource(R.string.total, total), style = MaterialTheme.typography.titleSmall)
-                        }
                         Button(
                             modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
                             shape = MaterialTheme.shapes.small,
@@ -141,50 +140,58 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
                 }
                 1 -> {
                     BookingMachine(machine)
-                    Text(stringResource(R.string.schedule_help), style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    DateTimeFields(R.string.start_label, start) { next ->
-                        startValue = next.toString()
-                        if (next >= LocalDateTime.parse(endValue)) endValue = next.plusHours(2).toString()
-                        invalid = false
-                    }
-                    if (daily) {
-                        Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
-                            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            DateTimeFields(R.string.start_label, start) { next ->
+                                startValue = next.toString()
+                                if (next >= LocalDateTime.parse(endValue)) endValue = next.plusHours(2).toString()
+                                invalid = false
+                            }
+                            HorizontalDivider()
+                            if (daily) {
                                 Text(stringResource(R.string.rental_days), style = MaterialTheme.typography.titleSmall)
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    OutlinedButton(onClick = { days-- }, enabled = days > 1, shape = MaterialTheme.shapes.small) { Text(stringResource(R.string.remove_day)) }
-                                    Text(pluralStringResource(R.plurals.day_count, days, days), Modifier.weight(1f),
-                                        style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                                    OutlinedButton(onClick = { days++ }, enabled = days < 365, shape = MaterialTheme.shapes.small) { Text(stringResource(R.string.add_day)) }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween) {
+                                    OutlinedButton(onClick = { days-- }, enabled = days > 1, shape = MaterialTheme.shapes.small) {
+                                        Text(stringResource(R.string.remove_day))
+                                    }
+                                    Text(pluralStringResource(R.plurals.day_count, days, days), style = MaterialTheme.typography.titleMedium)
+                                    OutlinedButton(onClick = { days++ }, enabled = days < 365, shape = MaterialTheme.shapes.small) {
+                                        Text(stringResource(R.string.add_day))
+                                    }
                                 }
                                 Text(stringResource(R.string.end_preview, end.format(bookingFormat)), style = MaterialTheme.typography.bodyMedium)
+                            } else {
+                                DateTimeFields(R.string.end_label, end) { endValue = it.toString(); invalid = false }
                             }
                         }
-                    } else {
-                        DateTimeFields(R.string.end_label, end) { endValue = it.toString(); invalid = false }
                     }
+                    ArrivalEstimate(start)
                     if (invalid) Text(stringResource(R.string.invalid_dates), color = MaterialTheme.colorScheme.error)
                 }
                 2 -> {
                     BookingMachine(machine)
-                    Surface(color = MaterialTheme.colorScheme.surface, shape = MaterialTheme.shapes.medium,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                SummaryLine(R.string.start_label, start.format(bookingFormat), Modifier.weight(1f))
-                                SummaryLine(R.string.end_label, end.format(bookingFormat), Modifier.weight(1f))
-                            }
-                            HorizontalDivider()
-                            SummaryLine(R.string.rental_mode, stringResource(if (daily) R.string.daily else R.string.hourly))
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.requested_schedule), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            TextButton(onClick = { step = 1 }, enabled = !saving) { Text(stringResource(R.string.edit_schedule)) }
                         }
+                        ReviewTime(R.string.start_label, start)
+                        HorizontalDivider()
+                        ReviewTime(R.string.end_label, end)
                     }
+                    ArrivalEstimate(start)
                     val count = units.toInt()
                     val billed = pluralStringResource(if (daily) R.plurals.day_count else R.plurals.hour_count, count, count)
-                    Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.medium) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            SummaryLine(R.string.billing, stringResource(R.string.unit_calculation, billed, unitPrice))
-                            Text(stringResource(R.string.total, total), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
+                        shape = MaterialTheme.shapes.medium) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(stringResource(R.string.unit_calculation, billed, unitPrice),
+                                color = MaterialTheme.colorScheme.secondaryContainer, style = MaterialTheme.typography.labelLarge)
+                            Text(stringResource(R.string.total, total), style = MaterialTheme.typography.headlineSmall,
+                                fontWeight = FontWeight.Bold)
                         }
                     }
                     Text(stringResource(R.string.local_request_notice), style = MaterialTheme.typography.bodySmall)
@@ -204,11 +211,33 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
 }
 
 @Composable
-private fun SummaryLine(label: Int, value: String, modifier: Modifier = Modifier.fillMaxWidth()) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(stringResource(label), style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.bodyLarge)
+private fun ReviewTime(label: Int, dateTime: LocalDateTime) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(label), style = MaterialTheme.typography.labelMedium)
+            Text(dateTime.format(dateFormat), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        }
+        Text(dateTime.format(timeFormat), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun ArrivalEstimate(requestedStart: LocalDateTime) {
+    val earliest = requestedStart.plusMinutes(15)
+    val latest = requestedStart.plusMinutes(30)
+    val format = if (latest.toLocalDate() == requestedStart.toLocalDate()) timeFormat else bookingFormat
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(painterResource(R.drawable.ic_bookings), null, Modifier.size(22.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(stringResource(R.string.estimated_arrival), style = MaterialTheme.typography.labelLarge)
+                Text(stringResource(R.string.arrival_range, earliest.format(format), latest.format(format)),
+                    style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.arrival_explanation), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 
@@ -283,36 +312,32 @@ private fun RentalOption(label: Int, description: Int, rate: Int, selected: Bool
 private fun DateTimeFields(label: Int, dateTime: LocalDateTime, onChange: (LocalDateTime) -> Unit) {
     val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(stringResource(label), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = {
+        Text(stringResource(label), style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                Modifier.weight(1f).clip(MaterialTheme.shapes.small).clickable(role = Role.Button) {
                     DatePickerDialog(context, { _, year, month, day ->
                         onChange(LocalDateTime.of(year, month + 1, day, dateTime.hour, dateTime.minute))
                     }, dateTime.year, dateTime.monthValue - 1, dateTime.dayOfMonth).show()
-                },
-                modifier = Modifier.weight(1f).heightIn(min = 62.dp),
-                shape = MaterialTheme.shapes.small,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) { PickerValue(R.string.booking_date, dateTime.format(dateFormat)) }
-            OutlinedButton(
+                }.heightIn(min = 48.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(painterResource(R.drawable.ic_bookings), stringResource(R.string.booking_date), Modifier.size(18.dp))
+                Text(dateTime.format(dateFormat), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            }
+            FilledTonalButton(
                 onClick = {
                     TimePickerDialog(context, { _, hour, minute -> onChange(dateTime.withHour(hour).withMinute(minute)) },
                         dateTime.hour, dateTime.minute, true).show()
                 },
-                modifier = Modifier.weight(1f).heightIn(min = 62.dp),
                 shape = MaterialTheme.shapes.small,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) { PickerValue(R.string.booking_time, dateTime.format(timeFormat)) }
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurface
+                )
+            ) { Text(dateTime.format(timeFormat), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) }
         }
-    }
-}
-
-@Composable
-private fun PickerValue(label: Int, value: String) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        Text(stringResource(label), style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
     }
 }
