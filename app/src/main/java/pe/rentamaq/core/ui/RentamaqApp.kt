@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.feature.bookings.BookingWizard
 import pe.rentamaq.feature.equipment.EquipmentDetail
+import pe.rentamaq.feature.equipment.EquipmentLocation
 import pe.rentamaq.feature.explore.CatalogViewModel
 import pe.rentamaq.feature.explore.CatalogCarousel
 import pe.rentamaq.feature.explore.EquipmentCategories
@@ -233,6 +234,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                         }
                     } else {
                         item(key = selected.id) { EquipmentDetail(selected) }
+                        item(key = "location-${selected.id}") { EquipmentLocation(selected.zone) }
                     }
                     1 -> {
                         item { Text(stringResource(R.string.bookings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }

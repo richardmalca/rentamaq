@@ -7,7 +7,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -23,7 +22,6 @@ import pe.rentamaq.feature.explore.type
 
 @Composable
 fun EquipmentDetail(machine: Equipment) {
-    var showMap by rememberSaveable { mutableStateOf(false) }
     val maintenance = when (machine.id) {
         1 -> listOf(
             MaintenanceEntry("12/11/2026", 4820, R.string.excavator_maintenance),
@@ -63,15 +61,14 @@ fun EquipmentDetail(machine: Equipment) {
                 }
             }
         }
-        DetailSection(R.string.reference_location) {
-            Text(stringResource(R.string.sector_name, machine.zone))
-            if (showMap) {
-                ReferenceMap(machine.zone)
-            }
-            OutlinedButton(onClick = { showMap = !showMap }, shape = MaterialTheme.shapes.small) {
-                Text(stringResource(if (showMap) R.string.hide_zone else R.string.show_zone))
-            }
-        }
+    }
+}
+
+@Composable
+fun EquipmentLocation(sector: String) {
+    DetailSection(R.string.reference_location) {
+        Text(stringResource(R.string.sector_name, sector), style = MaterialTheme.typography.labelLarge)
+        ReferenceMap()
     }
 }
 

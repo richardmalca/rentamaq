@@ -1,14 +1,12 @@
 package pe.rentamaq.feature.equipment
 
 import android.annotation.SuppressLint
-import android.net.Uri
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,7 +20,7 @@ private const val mapPage = "file:///android_asset/leaflet-map/index.html"
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
-fun ReferenceMap(sector: String) {
+fun ReferenceMap() {
     val uriHandler = LocalUriHandler.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         AndroidView(
@@ -48,9 +46,5 @@ fun ReferenceMap(sector: String) {
             onRelease = { it.destroy() }
         )
         Text(stringResource(R.string.map_area_explanation), style = MaterialTheme.typography.bodySmall)
-        TextButton(onClick = {
-            val query = Uri.encode("$sector, Cajamarca, Perú")
-            uriHandler.openUri("https://www.openstreetmap.org/search?query=$query")
-        }) { Text(stringResource(R.string.openstreetmap)) }
     }
 }
