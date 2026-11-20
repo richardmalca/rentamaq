@@ -8,8 +8,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,16 +32,12 @@ enum class EquipmentType(val label: Int, val photo: Int) {
     EXCAVATOR(R.string.excavators, R.drawable.excavator),
     BACKHOE(R.string.backhoes, R.drawable.backhoe),
     ROLLER(R.string.rollers, R.drawable.roller),
-    SKID_STEER(R.string.skid_steers, R.drawable.skid_steer)
+    SKID_STEER(R.string.skid_steers, R.drawable.skid_steer),
+    GRADER(R.string.graders, R.drawable.grader),
+    LOADER(R.string.loaders, R.drawable.loader)
 }
 
-fun Equipment.type(): EquipmentType? = when (id) {
-    1 -> EquipmentType.EXCAVATOR
-    2 -> EquipmentType.BACKHOE
-    3 -> EquipmentType.ROLLER
-    4 -> EquipmentType.SKID_STEER
-    else -> null
-}
+fun Equipment.type(): EquipmentType? = EquipmentType.entries.find { it.name == category }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -97,10 +95,15 @@ fun CatalogSearch(
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(stringResource(R.string.area), style = MaterialTheme.typography.titleSmall)
-                    Row(Modifier.fillMaxWidth().selectableGroup().padding(top = 6.dp)) {
-                        (listOf(null) + zones).forEach { option ->
-                            FilterOption(option ?: stringResource(R.string.all_zones), draftZone == option, Modifier.weight(1f), showMark = false) {
-                                draftZone = option
+                    Column(Modifier.fillMaxWidth().selectableGroup().padding(top = 6.dp)) {
+                        (listOf(null) + zones).chunked(2).forEach { pair ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                pair.forEach { option ->
+                                    FilterOption(option ?: stringResource(R.string.all_zones), draftZone == option, Modifier.weight(1f), showMark = false) {
+                                        draftZone = option
+                                    }
+                                }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
                             }
                         }
                     }
@@ -149,16 +152,52 @@ private fun FilterOption(
 
 @Composable
 fun CatalogCarousel(title: Int, machines: List<Equipment>, compact: Boolean, onOpen: (Int) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(stringResource(title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(machines, key = { it.id }) { machine ->
-                if (compact) {
-                    CompactEquipmentCard(machine, onOpen = { onOpen(machine.id) })
-                } else {
-                    FeaturedEquipment(machine, onOpen = { onOpen(machine.id) })
+    val state = rememberLazyListState()
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val featuredWidth = (maxWidth - 56.dp).coerceAtMost(400.dp)
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(stringResource(title), Modifier.padding(horizontal = 20.dp),
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                state = state,
+                contentPadding = PaddingValues(horizontal = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                flingBehavior = if (compact) androidx.compose.foundation.gestures.ScrollableDefaults.flingBehavior()
+                    else rememberSnapFlingBehavior(state, androidx.compose.foundation.gestures.snapping.SnapPosition.Start)
+            ) {
+                items(machines, key = { it.id }) { machine ->
+                    if (compact) {
+                        CompactEquipmentCard(machine, onOpen = { onOpen(machine.id) })
+                    } else {
+                        FeaturedEquipment(machine, Modifier.width(featuredWidth), onOpen = { onOpen(machine.id) })
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun EquipmentCategories(machines: List<Equipment>, onSelect: (EquipmentType) -> Unit) {
+    val counts = machines.groupingBy { it.type() }.eachCount()
+    Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        Text(stringResource(R.string.equipment_type), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(6.dp))
+        EquipmentType.entries.forEach { type ->
+            val count = counts[type] ?: return@forEach
+            Row(
+                Modifier.fillMaxWidth().clickable(role = Role.Button) { onSelect(type) }.padding(vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Image(painterResource(type.photo), null, Modifier.size(52.dp, 38.dp).clip(MaterialTheme.shapes.small),
+                    contentScale = ContentScale.Crop)
+                Text(stringResource(type.label), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
+                Text(pluralStringResource(R.plurals.equipment_results, count, count), style = MaterialTheme.typography.labelMedium)
+                Icon(painterResource(R.drawable.ic_arrow), null, Modifier.size(18.dp))
+            }
+            HorizontalDivider()
         }
     }
 }
@@ -169,7 +208,7 @@ private fun CompactEquipmentCard(machine: Equipment, onOpen: () -> Unit) {
         EquipmentPhoto(machine, Modifier.height(110.dp).clip(MaterialTheme.shapes.small))
         Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(machine.name, style = MaterialTheme.typography.titleSmall, minLines = 2, maxLines = 2)
-            Text(stringResource(R.string.zone_label, machine.zone), style = MaterialTheme.typography.labelMedium)
+            Text(machine.zone, style = MaterialTheme.typography.labelMedium)
             RateLabel(machine.hourlyRate, R.string.per_hour)
         }
         HorizontalDivider()
@@ -200,22 +239,25 @@ fun EquipmentPhoto(machine: Equipment, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun FeaturedEquipment(machine: Equipment, onOpen: () -> Unit) {
-    Column(Modifier.width(282.dp).clip(MaterialTheme.shapes.medium).clickable(role = Role.Button, onClick = onOpen)) {
-        EquipmentPhoto(machine, Modifier.height(152.dp))
-        Column(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary).padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(7.dp)
+private fun FeaturedEquipment(machine: Equipment, modifier: Modifier, onOpen: () -> Unit) {
+    Column(modifier.clickable(role = Role.Button, onClick = onOpen)) {
+        EquipmentPhoto(machine, Modifier.aspectRatio(1.8f).clip(MaterialTheme.shapes.medium))
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 10.dp),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text(stringResource(R.string.zone_label, machine.zone), style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.secondaryContainer)
-            Text(machine.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-                minLines = 2, maxLines = 2, color = MaterialTheme.colorScheme.onPrimary)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(machine.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                Text(machine.zone, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(stringResource(R.string.rate, machine.hourlyRate, machine.dailyRate),
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.weight(1f))
-                Icon(painterResource(R.drawable.ic_arrow), null, tint = MaterialTheme.colorScheme.secondaryContainer)
+                    style = MaterialTheme.typography.labelMedium)
+            }
+            Box(
+                Modifier.size(34.dp).background(MaterialTheme.colorScheme.secondaryContainer, MaterialTheme.shapes.small),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(painterResource(R.drawable.ic_arrow), null, Modifier.size(18.dp))
             }
         }
     }
@@ -230,7 +272,7 @@ fun EquipmentResult(machine: Equipment, onOpen: () -> Unit) {
         ) {
             EquipmentPhoto(machine, Modifier.size(width = 96.dp, height = 84.dp).clip(MaterialTheme.shapes.small))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stringResource(R.string.zone_label, machine.zone), style = MaterialTheme.typography.labelMedium)
+                Text(machine.zone, style = MaterialTheme.typography.labelMedium)
                 Text(machine.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 Text(stringResource(R.string.rate, machine.hourlyRate, machine.dailyRate), style = MaterialTheme.typography.bodySmall)
             }

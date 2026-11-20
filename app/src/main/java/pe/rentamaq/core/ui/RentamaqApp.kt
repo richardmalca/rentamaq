@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -15,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
@@ -26,6 +28,7 @@ import pe.rentamaq.core.data.local.Booking
 import pe.rentamaq.core.data.local.Equipment
 import pe.rentamaq.feature.explore.CatalogViewModel
 import pe.rentamaq.feature.explore.CatalogCarousel
+import pe.rentamaq.feature.explore.EquipmentCategories
 import pe.rentamaq.feature.explore.CatalogSearch
 import pe.rentamaq.feature.explore.CatalogResults
 import pe.rentamaq.feature.explore.EquipmentResult
@@ -43,7 +46,6 @@ import java.time.format.ResolverStyle
 private val background = Color(0xFFFAF9F5)
 private val accent = Color(0xFFF6D45E)
 private val ink = Color(0xFF232518)
-private val zones = listOf("Norte", "Centro", "Sur")
 private val dateFormat = DateTimeFormatter.ofPattern("dd/MM/uuuu HH:mm").withResolverStyle(ResolverStyle.STRICT)
 private val lima = ZoneId.of("America/Lima")
 private val combiningMarks = Regex("\\p{M}+")
@@ -60,18 +62,33 @@ fun RentamaqApp(model: CatalogViewModel) {
     var zone by rememberSaveable { mutableStateOf<String?>(null) }
     var search by rememberSaveable { mutableStateOf("") }
     var type by rememberSaveable { mutableStateOf<EquipmentType?>(null) }
+    var showAll by rememberSaveable { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val selected = equipment.find { it.id == selectedId }
     val query = search.trim().searchKey()
-    val filtered = query.isNotEmpty() || type != null || zone != null
+    val filtered = query.isNotEmpty() || type != null || zone != null || showAll
+    val browseHome = tab == 0 && selected == null && !filtered
+    val horizontalInset = if (browseHome) Modifier.padding(horizontal = 20.dp) else Modifier
+    val zones = equipment.map { it.zone }.distinct().sorted()
+    val homeScroll = rememberLazyListState()
+    val resultsScroll = key(search, type, zone, showAll) { rememberLazyListState() }
+    val detailScroll = key(selectedId) { rememberLazyListState() }
+    val bookingsScroll = rememberLazyListState()
+    val accountScroll = rememberLazyListState()
     val matches = equipment.filter {
         (zone == null || it.zone == zone) && (type == null || it.type() == type) &&
             (it.name.searchKey().contains(query) || it.description.searchKey().contains(query))
     }
 
     BackHandler(tab == 0 && selectedId != null) { selectedId = null }
+    BackHandler(tab == 0 && selectedId == null && filtered) {
+        search = ""
+        type = null
+        zone = null
+        showAll = false
+    }
 
     MaterialTheme(shapes = Shapes(
         small = RoundedCornerShape(6.dp),
@@ -115,28 +132,39 @@ fun RentamaqApp(model: CatalogViewModel) {
         ) { padding ->
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(20.dp),
+                state = when {
+                    tab == 1 -> bookingsScroll
+                    tab == 2 -> accountScroll
+                    selected != null -> detailScroll
+                    filtered -> resultsScroll
+                    else -> homeScroll
+                },
+                contentPadding = PaddingValues(horizontal = if (browseHome) 0.dp else 20.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                        if (tab == 0 && selected == null) {
-                            Text(stringResource(R.string.location), style = MaterialTheme.typography.labelMedium)
+                    Column(horizontalInset) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                            if (tab == 0 && selected == null) {
+                                Text(stringResource(R.string.location), style = MaterialTheme.typography.labelMedium)
+                            }
                         }
+                        Spacer(Modifier.height(10.dp))
+                        HorizontalDivider()
                     }
-                    Spacer(Modifier.height(10.dp))
-                    HorizontalDivider()
                 }
                 when (tab) {
                     0 -> if (selected == null) {
                         item {
-                            Text(stringResource(R.string.headline), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                            Text(stringResource(R.string.headline), horizontalInset, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                         }
                         item {
-                            CatalogSearch(search, { search = it }, type, zone, zones) { nextType, nextZone ->
-                                type = nextType
-                                zone = nextZone
+                            Box(horizontalInset) {
+                                CatalogSearch(search, { search = it }, type, zone, zones) { nextType, nextZone ->
+                                    type = nextType
+                                    zone = nextZone
+                                }
                             }
                         }
                         if (filtered) {
@@ -145,6 +173,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                     search = ""
                                     type = null
                                     zone = null
+                                    showAll = false
                                 }
                             }
                             if (matches.isEmpty()) item { Text(stringResource(R.string.no_equipment)) }
@@ -153,11 +182,20 @@ fun RentamaqApp(model: CatalogViewModel) {
                             }
                         } else if (equipment.isNotEmpty()) {
                             item {
-                                CatalogCarousel(R.string.featured_equipment, equipment.take(2), compact = false) { selectedId = it }
+                                CatalogCarousel(R.string.featured_equipment, equipment.take(6), compact = false) { selectedId = it }
                             }
-                            val recent = equipment.drop(2).asReversed()
-                            if (recent.isNotEmpty()) item {
-                                CatalogCarousel(R.string.recent_listings, recent, compact = true) { selectedId = it }
+                            item {
+                                CatalogCarousel(R.string.recent_listings, equipment.takeLast(8).asReversed(), compact = true) { selectedId = it }
+                            }
+                            item { EquipmentCategories(equipment) { type = it } }
+                            item {
+                                Column(Modifier.padding(horizontal = 20.dp)) {
+                                    Text(stringResource(R.string.lowest_hourly_rates), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                    equipment.sortedBy { it.hourlyRate }.take(3).forEach { machine ->
+                                        EquipmentResult(machine) { selectedId = machine.id }
+                                    }
+                                    TextButton(onClick = { showAll = true }) { Text(stringResource(R.string.see_all_equipment)) }
+                                }
                             }
                         }
                     } else {
@@ -173,7 +211,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                             Spacer(Modifier.height(12.dp))
                             HorizontalDivider()
                             Spacer(Modifier.height(12.dp))
-                            Text(stringResource(R.string.zone_label, selected.zone), style = MaterialTheme.typography.titleSmall)
+                            Text(stringResource(R.string.sector_name, selected.zone), style = MaterialTheme.typography.titleSmall)
                             TextButton(onClick = { showZone = !showZone }) {
                                 Text(stringResource(if (showZone) R.string.hide_zone else R.string.show_zone))
                             }
@@ -233,19 +271,16 @@ fun RentamaqApp(model: CatalogViewModel) {
 
 @Composable
 private fun ZoneMap(selected: String) {
+    val uriHandler = LocalUriHandler.current
+    val query = android.net.Uri.encode("$selected, Cajamarca, Perú")
     Column(
-        Modifier.fillMaxWidth().background(Color(0xFFE8EDDF), RoundedCornerShape(20.dp)).padding(16.dp),
+        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.shapes.small).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(stringResource(R.string.map_hint), style = MaterialTheme.typography.labelLarge)
-        zones.forEachIndexed { index, zone ->
-            Surface(
-                modifier = Modifier.fillMaxWidth(0.86f + 0.06f * index),
-                shape = RoundedCornerShape(28.dp, 14.dp, 36.dp, 12.dp),
-                color = if (zone == selected) accent else Color(0xFFD0DAC6)
-            ) {
-                Text(zone, Modifier.padding(horizontal = 20.dp, vertical = 12.dp))
-            }
+        Text(stringResource(R.string.sector_map_explanation, selected), style = MaterialTheme.typography.bodyMedium)
+        TextButton(onClick = { uriHandler.openUri("https://www.openstreetmap.org/search?query=$query") }) {
+            Text(stringResource(R.string.openstreetmap))
         }
     }
 }

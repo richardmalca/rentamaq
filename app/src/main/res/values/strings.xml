@@ -9,8 +9,10 @@
     <string name="all_zones">Todas</string>
     <string name="all_equipment">Todos los tipos</string>
     <string name="equipment_type">Tipo de maquinaria</string>
-    <string name="area">Zona referencial</string>
-    <string name="zone_label">Zona %1$s</string>
+    <string name="area">Sector de Cajamarca</string>
+    <string name="sector_name">Sector %1$s</string>
+    <string name="sector_map_explanation">El mapa busca el sector %1$s. La ubicación de la máquina se coordina con el propietario.</string>
+    <string name="openstreetmap">Buscar sector en OpenStreetMap</string>
     <string name="search_equipment">Buscar maquinaria</string>
     <string name="filters">Filtros</string>
     <string name="active_filters">Filtros (%1$d)</string>
@@ -23,6 +25,10 @@
     <string name="backhoes">Retroexcavadoras</string>
     <string name="rollers">Rodillos</string>
     <string name="skid_steers">Minicargadores</string>
+    <string name="graders">Motoniveladoras</string>
+    <string name="loaders">Cargadores frontales</string>
+    <string name="lowest_hourly_rates">Menores tarifas por hora</string>
+    <string name="see_all_equipment">Ver toda la maquinaria</string>
     <string name="clear_filters">Limpiar filtros</string>
     <string name="no_equipment">No encontramos máquinas con esos filtros.</string>
     <string name="price">S/ %1$d</string>

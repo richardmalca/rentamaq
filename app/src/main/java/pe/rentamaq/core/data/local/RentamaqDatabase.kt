@@ -1,6 +1,8 @@
 package pe.rentamaq.core.data.local
 
 import androidx.room.*
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "equipment")
@@ -10,7 +12,8 @@ data class Equipment(
     val description: String,
     val zone: String,
     val hourlyRate: Int,
-    val dailyRate: Int
+    val dailyRate: Int,
+    @ColumnInfo(defaultValue = "''") val category: String
 )
 
 @Entity(tableName = "bookings")
@@ -30,7 +33,7 @@ interface CatalogDao {
     @Query("SELECT * FROM bookings ORDER BY id DESC")
     fun bookings(): Flow<List<Booking>>
 
-    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    @Upsert
     suspend fun seed(equipment: List<Equipment>)
 
     @Insert
@@ -40,7 +43,13 @@ interface CatalogDao {
     suspend fun remove(id: Long)
 }
 
-@Database(entities = [Equipment::class, Booking::class], version = 1, exportSchema = false)
+@Database(entities = [Equipment::class, Booking::class], version = 2, exportSchema = false)
 abstract class RentamaqDatabase : RoomDatabase() {
     abstract fun catalog(): CatalogDao
+}
+
+val migrateCatalogCategory = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE equipment ADD COLUMN category TEXT NOT NULL DEFAULT ''")
+    }
 }

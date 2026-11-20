@@ -9,6 +9,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.room.Room
 import pe.rentamaq.core.data.CatalogRepository
 import pe.rentamaq.core.data.local.RentamaqDatabase
+import pe.rentamaq.core.data.local.migrateCatalogCategory
 import pe.rentamaq.core.ui.RentamaqApp
 import pe.rentamaq.feature.explore.CatalogViewModel
 
@@ -18,7 +19,9 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge(statusBarStyle = SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.BLACK))
         setContent {
             val model = viewModel {
-                val database = Room.databaseBuilder(applicationContext, RentamaqDatabase::class.java, "rentamaq.db").build()
+                val database = Room.databaseBuilder(applicationContext, RentamaqDatabase::class.java, "rentamaq.db")
+                    .addMigrations(migrateCatalogCategory)
+                    .build()
                 CatalogViewModel(CatalogRepository(database.catalog()))
             }
             RentamaqApp(model)

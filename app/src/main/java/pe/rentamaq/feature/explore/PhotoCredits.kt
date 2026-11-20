@@ -17,7 +17,9 @@ private val credits = listOf(
     PhotoCredit("Bene Riobó", "Caterpillar_320.jpg", "4.0"),
     PhotoCredit("Andrew Butko", "JCB_3CX_backhoe_loader.jpg", "3.0"),
     PhotoCredit("Reinhold Möller", "ICE-Baustelle-BOMAG-roadroller-P3209764.jpg", "4.0"),
-    PhotoCredit("Bob Adams", "Bobcat_S650_skid_steer_loader_(15084521732).jpg", "2.0")
+    PhotoCredit("Bob Adams", "Bobcat_S650_skid_steer_loader_(15084521732).jpg", "2.0"),
+    PhotoCredit("Shinx990", "CAT_140_M_MOTORGRADER.jpg", "4.0"),
+    PhotoCredit("Matthew T Rader / MatthewTRader.com", "Caterpillar_950k_Wheel_Loader.jpg", "4.0")
 )
 
 @Composable
