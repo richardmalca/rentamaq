@@ -21,6 +21,12 @@ import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.feature.bookings.BookingWizard
+import pe.rentamaq.feature.bookings.BookingsScreen
+import pe.rentamaq.core.data.bookingZone
+import pe.rentamaq.core.data.cancelledBooking
+import pe.rentamaq.core.data.canCancel
+import pe.rentamaq.core.data.phase
+import java.time.LocalDateTime
 import pe.rentamaq.feature.equipment.EquipmentDetail
 import pe.rentamaq.feature.equipment.EquipmentLocation
 import pe.rentamaq.feature.explore.CatalogViewModel
@@ -164,10 +170,42 @@ fun RentamaqApp(model: CatalogViewModel) {
                 }
             }
         ) { padding ->
+            if (tab == 1) {
+                BookingsScreen(bookings, equipment, bookingsScroll, Modifier.padding(padding),
+                    onExplore = { selectedId = null; tab = 0 },
+                    onCancel = { booking ->
+                        if (!booking.phase(LocalDateTime.now(bookingZone)).canCancel()) {
+                            scope.launch { snackbar.showSnackbar(context.getString(R.string.cancel_unavailable)) }
+                        } else {
+                            model.changeBookingStatus(booking, cancelledBooking) { updated ->
+                                scope.launch {
+                                    val result = snackbar.showSnackbar(
+                                        context.getString(if (updated) R.string.booking_cancelled_notice else R.string.cancel_unavailable),
+                                        actionLabel = if (updated) context.getString(R.string.undo) else null,
+                                        duration = SnackbarDuration.Long
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        if (booking.phase(LocalDateTime.now(bookingZone)).canCancel()) {
+                                            model.changeBookingStatus(booking.copy(status = cancelledBooking), booking.status) { restored ->
+                                                scope.launch {
+                                                    snackbar.showSnackbar(context.getString(
+                                                        if (restored) R.string.booking_restored else R.string.restore_unavailable))
+                                                }
+                                            }
+                                        } else {
+                                            snackbar.showSnackbar(context.getString(R.string.restore_unavailable))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                )
+                return@Scaffold
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 state = when {
-                    tab == 1 -> bookingsScroll
                     tab == 2 -> accountScroll
                     selected != null -> detailScroll
                     filtered -> resultsScroll
@@ -235,26 +273,6 @@ fun RentamaqApp(model: CatalogViewModel) {
                     } else {
                         item(key = selected.id) { EquipmentDetail(selected) }
                         item(key = "location-${selected.id}") { EquipmentLocation(selected.zone) }
-                    }
-                    1 -> {
-                        item { Text(stringResource(R.string.bookings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold) }
-                        if (bookings.isEmpty()) item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(stringResource(R.string.empty), style = MaterialTheme.typography.bodyLarge)
-                                Button(onClick = { selectedId = null; tab = 0 }, shape = MaterialTheme.shapes.small) {
-                                    Text(stringResource(R.string.browse_equipment))
-                                }
-                            }
-                        }
-                        items(bookings, key = { it.id }) { booking ->
-                            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(booking.equipmentName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text(stringResource(R.string.pending), style = MaterialTheme.typography.labelMedium)
-                                Text(stringResource(R.string.booking_period, booking.start, booking.end), style = MaterialTheme.typography.bodyMedium)
-                                Text(stringResource(R.string.total, booking.total), style = MaterialTheme.typography.titleSmall)
-                                HorizontalDivider(Modifier.padding(top = 8.dp))
-                            }
-                        }
                     }
                     2 -> item {
                         Text(stringResource(R.string.account), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)

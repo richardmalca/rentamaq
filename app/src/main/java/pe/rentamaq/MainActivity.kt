@@ -10,6 +10,7 @@ import androidx.room.Room
 import pe.rentamaq.core.data.CatalogRepository
 import pe.rentamaq.core.data.local.RentamaqDatabase
 import pe.rentamaq.core.data.local.migrateCatalogCategory
+import pe.rentamaq.core.data.local.migrateBookingStatus
 import pe.rentamaq.core.ui.RentamaqApp
 import pe.rentamaq.feature.explore.CatalogViewModel
 
@@ -20,7 +21,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val model = viewModel {
                 val database = Room.databaseBuilder(applicationContext, RentamaqDatabase::class.java, "rentamaq.db")
-                    .addMigrations(migrateCatalogCategory)
+                    .addMigrations(migrateCatalogCategory, migrateBookingStatus)
                     .build()
                 CatalogViewModel(CatalogRepository(database.catalog()))
             }

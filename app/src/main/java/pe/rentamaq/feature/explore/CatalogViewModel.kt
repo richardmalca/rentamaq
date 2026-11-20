@@ -30,4 +30,15 @@ class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() 
     fun undo(id: Long) {
         viewModelScope.launch { repository.undo(id) }
     }
+
+    fun changeBookingStatus(booking: Booking, next: String, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val updated = try {
+                repository.transition(booking, next)
+            } catch (_: android.database.sqlite.SQLiteException) {
+                false
+            }
+            onUpdated(updated)
+        }
+    }
 }
