@@ -90,6 +90,14 @@
     <string name="sign_out">Cerrar sesión</string>
     <string name="account_email">Correo electrónico</string>
     <string name="account_not_found">No encontramos una cuenta con ese correo.</string>
+    <string name="account_access">Accede a tu cuenta</string>
+    <string name="account_access_description">Gestiona tus reservas o publica tus máquinas desde una misma cuenta.</string>
+    <string name="access_bookings_title">Tus reservas en un solo lugar</string>
+    <string name="continue_exploring">Seguir explorando</string>
+    <string name="already_have_account">¿Ya tienes cuenta? Inicia sesión</string>
+    <string name="no_account_yet">¿Aún no tienes cuenta? Créala aquí</string>
+    <string name="existing_device_account">Ya hay una cuenta registrada en este teléfono. Inicia sesión con su correo.</string>
+    <string name="sign_in_description">Ingresa el correo que usaste al crear tu cuenta.</string>
     <string name="account_required_reserve">Crea una cuenta o inicia sesión para solicitar el alquiler.</string>
     <string name="account_required_publish">Crea una cuenta o inicia sesión para registrar maquinaria.</string>
     <string name="account_required_bookings">Crea una cuenta o inicia sesión para consultar y gestionar tus reservas.</string>

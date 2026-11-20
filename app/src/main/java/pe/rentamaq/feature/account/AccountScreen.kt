@@ -29,7 +29,13 @@ import pe.rentamaq.feature.explore.EquipmentType
 import pe.rentamaq.feature.explore.PhotoCredits
 import java.time.LocalDate
 
-private enum class AccountPage { HOME, EDIT, PUBLISH, CREDITS, SIGN_IN }
+private enum class AccountPage { HOME, ACCESS, REGISTER, EDIT, PUBLISH, CREDITS, SIGN_IN }
+
+private fun AccountEntry.page() = when (this) {
+    AccountEntry.OPTIONS -> AccountPage.ACCESS
+    AccountEntry.SIGN_IN -> AccountPage.SIGN_IN
+    AccountEntry.REGISTER -> AccountPage.REGISTER
+}
 
 @Composable
 fun AccountScreen(
@@ -38,6 +44,7 @@ fun AccountScreen(
     publications: List<Equipment>,
     sectors: List<String>,
     requiredMessage: Int?,
+    entry: AccountEntry,
     onAuthenticated: () -> Unit,
     onAuthBack: () -> Unit,
     onExplore: () -> Unit,
@@ -48,15 +55,21 @@ fun AccountScreen(
     val signedIn = session.signedIn
     val name = if (signedIn) session.name else ""
     val company = signedIn && session.company
-    val authPage = if (session.email.isBlank()) AccountPage.EDIT else AccountPage.SIGN_IN
-    var page by rememberSaveable { mutableStateOf(if (requiredMessage == null) AccountPage.HOME else authPage) }
+    var page by rememberSaveable { mutableStateOf(if (requiredMessage == null) AccountPage.HOME else entry.page()) }
     var editingId by rememberSaveable { mutableStateOf<Int?>(null) }
     var publishAfterSignIn by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     val back = {
         if (!saving) {
-            publishAfterSignIn = false
-            if (requiredMessage != null && !signedIn) onAuthBack() else page = AccountPage.HOME
+            when {
+                !signedIn && page in listOf(AccountPage.SIGN_IN, AccountPage.REGISTER) ->
+                    page = if (requiredMessage != null || publishAfterSignIn) AccountPage.ACCESS else AccountPage.HOME
+                requiredMessage != null && !signedIn -> onAuthBack()
+                else -> {
+                    publishAfterSignIn = false
+                    page = AccountPage.HOME
+                }
+            }
         }
     }
     fun signedInSuccessfully() {
@@ -77,7 +90,9 @@ fun AccountScreen(
                     Icon(painterResource(R.drawable.ic_back), stringResource(R.string.cancel))
                 }
                 Text(stringResource(when (page) {
-                    AccountPage.EDIT -> if (signedIn) R.string.edit_profile else R.string.create_account
+                    AccountPage.ACCESS -> R.string.account
+                    AccountPage.REGISTER -> R.string.create_account
+                    AccountPage.EDIT -> R.string.edit_profile
                     AccountPage.PUBLISH -> if (editingId == null) R.string.publish_equipment else R.string.edit_publication
                     AccountPage.CREDITS -> R.string.photo_credits
                     AccountPage.SIGN_IN -> R.string.sign_in
@@ -89,7 +104,9 @@ fun AccountScreen(
         when (page) {
             AccountPage.HOME -> {
                 Text(stringResource(R.string.account), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
+                if (!signedIn) {
+                    AccountAccessPanel(R.string.account_access, R.string.account_access_description) { page = it.page() }
+                } else Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.medium) {
                     Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         val initials = name.split(' ').filter { it.isNotBlank() }.take(2).joinToString("") { it.take(1).uppercase() }
@@ -102,8 +119,8 @@ fun AccountScreen(
                             Text(name.ifBlank { stringResource(R.string.local_profile) }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(stringResource(if (company) R.string.company_profile else R.string.personal_profile), style = MaterialTheme.typography.bodySmall)
                         }
-                        TextButton(onClick = { page = if (signedIn) AccountPage.EDIT else authPage }) {
-                            Text(stringResource(if (signedIn) R.string.edit_schedule else if (session.email.isBlank()) R.string.create_account else R.string.sign_in))
+                        TextButton(onClick = { page = AccountPage.EDIT }) {
+                            Text(stringResource(R.string.edit_schedule))
                         }
                     }
                 }
@@ -116,7 +133,7 @@ fun AccountScreen(
                         onOpen = {
                             editingId = null
                             publishAfterSignIn = !signedIn
-                            page = if (signedIn) AccountPage.PUBLISH else authPage
+                            page = if (signedIn) AccountPage.PUBLISH else AccountPage.ACCESS
                         })
                     if (signedIn && publications.isNotEmpty()) {
                         Text(stringResource(R.string.my_publications), style = MaterialTheme.typography.titleSmall)
@@ -133,11 +150,30 @@ fun AccountScreen(
                     onOpen = { page = AccountPage.CREDITS })
                 if (signedIn) TextButton(onClick = session::signOut) { Text(stringResource(R.string.sign_out)) }
             }
-            AccountPage.EDIT -> {
-                if (!signedIn) AuthExplanation(requiredMessage, publishAfterSignIn)
-                EditLocalProfile(name, company, if (signedIn) session.email else "") { newName, isCompany, newEmail ->
+            AccountPage.ACCESS -> {
+                val message = if (publishAfterSignIn) R.string.account_required_publish
+                    else requiredMessage ?: R.string.account_access_description
+                AccountAccessPanel(R.string.account_access, message) { page = it.page() }
+            }
+            AccountPage.EDIT -> if (signedIn) {
+                EditLocalProfile(name, company, session.email, R.string.save_profile) { newName, isCompany, newEmail ->
                     session.save(newName, isCompany, newEmail)
                     signedInSuccessfully()
+                }
+            }
+            AccountPage.REGISTER -> if (!signedIn) {
+                AuthExplanation(requiredMessage, publishAfterSignIn)
+                if (session.email.isBlank()) {
+                    EditLocalProfile("", false, "", R.string.create_account) { newName, isCompany, newEmail ->
+                        session.save(newName, isCompany, newEmail)
+                        signedInSuccessfully()
+                    }
+                    TextButton(onClick = { page = AccountPage.SIGN_IN }) { Text(stringResource(R.string.already_have_account)) }
+                } else {
+                    Text(stringResource(R.string.existing_device_account))
+                    Button(onClick = { page = AccountPage.SIGN_IN }, shape = MaterialTheme.shapes.small) {
+                        Text(stringResource(R.string.sign_in))
+                    }
                 }
             }
             AccountPage.PUBLISH -> if (signedIn) PublicationForm(sectors, saving, publications.find { it.id == editingId }) { machine, finished ->
@@ -151,6 +187,8 @@ fun AccountScreen(
             AccountPage.CREDITS -> PhotoCredits()
             AccountPage.SIGN_IN -> {
                 AuthExplanation(requiredMessage, publishAfterSignIn)
+                Text(stringResource(R.string.sign_in_description), style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 var enteredEmail by rememberSaveable { mutableStateOf("") }
                 var mismatch by rememberSaveable { mutableStateOf(false) }
                 OutlinedTextField(enteredEmail, { enteredEmail = it; mismatch = false }, Modifier.fillMaxWidth(), singleLine = true,
@@ -165,6 +203,7 @@ fun AccountScreen(
                 }, enabled = enteredEmail.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
                     Text(stringResource(R.string.sign_in))
                 }
+                TextButton(onClick = { page = AccountPage.REGISTER }) { Text(stringResource(R.string.no_account_yet)) }
             }
         }
     }
@@ -201,7 +240,7 @@ private fun AccountLink(title: Int, description: Int, icon: Int, onOpen: () -> U
 }
 
 @Composable
-private fun EditLocalProfile(name: String, company: Boolean, email: String, onSave: (String, Boolean, String) -> Unit) {
+private fun EditLocalProfile(name: String, company: Boolean, email: String, action: Int, onSave: (String, Boolean, String) -> Unit) {
     var draft by rememberSaveable { mutableStateOf(name) }
     var isCompany by rememberSaveable { mutableStateOf(company) }
     var draftEmail by rememberSaveable { mutableStateOf(email) }
@@ -220,7 +259,7 @@ private fun EditLocalProfile(name: String, company: Boolean, email: String, onSa
     Button(onClick = { onSave(draft.trim(), isCompany, draftEmail.trim()) },
         enabled = draft.isNotBlank() && android.util.Patterns.EMAIL_ADDRESS.matcher(draftEmail.trim()).matches(),
         modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
-        Text(stringResource(R.string.save_profile))
+        Text(stringResource(action))
     }
 }
 

@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.feature.bookings.BookingWizard
 import pe.rentamaq.feature.account.AccountScreen
+import pe.rentamaq.feature.account.AccountAccessPanel
+import pe.rentamaq.feature.account.AccountEntry
 import pe.rentamaq.feature.account.rememberAccountSession
 import pe.rentamaq.feature.bookings.BookingsScreen
 import pe.rentamaq.core.data.bookingZone
@@ -63,6 +65,7 @@ fun RentamaqApp(model: CatalogViewModel) {
     var showAll by rememberSaveable { mutableStateOf(false) }
     var showBooking by rememberSaveable { mutableStateOf(false) }
     var accountDestination by rememberSaveable { mutableStateOf<AccountDestination?>(null) }
+    var accountEntry by rememberSaveable { mutableStateOf(AccountEntry.OPTIONS) }
     val session = rememberAccountSession()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -149,6 +152,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                         showBooking = true
                                     } else {
                                         accountDestination = AccountDestination.RESERVATION
+                                        accountEntry = AccountEntry.OPTIONS
                                         tab = 2
                                     }
                                 },
@@ -187,11 +191,12 @@ fun RentamaqApp(model: CatalogViewModel) {
                     Column(Modifier.padding(padding).padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(stringResource(R.string.bookings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Text(stringResource(R.string.account_required_bookings), style = MaterialTheme.typography.bodyLarge)
-                        Button(onClick = { accountDestination = AccountDestination.BOOKINGS; tab = 2 },
-                            shape = MaterialTheme.shapes.small) {
-                            Text(stringResource(if (session.email.isBlank()) R.string.create_account else R.string.sign_in))
+                        AccountAccessPanel(R.string.access_bookings_title, R.string.account_required_bookings) { entry ->
+                            accountDestination = AccountDestination.BOOKINGS
+                            accountEntry = entry
+                            tab = 2
                         }
+                        TextButton(onClick = { selectedId = null; tab = 0 }) { Text(stringResource(R.string.continue_exploring)) }
                     }
                     return@Scaffold
                 }
@@ -232,6 +237,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                 AccountScreen(
                     modifier = Modifier.padding(padding),
                     session = session,
+                    entry = accountEntry,
                     publications = equipment.filter { it.owned }.asReversed(),
                     sectors = zones,
                     requiredMessage = when (accountDestination) {
