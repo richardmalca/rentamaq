@@ -1,6 +1,7 @@
 package pe.rentamaq.core.data
 
 import pe.rentamaq.core.data.local.*
+import java.time.LocalDateTime
 
 class CatalogRepository(private val dao: CatalogDao) {
     val equipment = dao.equipment()
@@ -14,6 +15,12 @@ class CatalogRepository(private val dao: CatalogDao) {
     suspend fun reserve(booking: Booking) = dao.insert(booking)
     suspend fun undo(id: Long) = dao.remove(id)
 
-    suspend fun transition(booking: Booking, next: String) =
-        dao.transitionBooking(booking.id, booking.status, next) == 1
+    suspend fun publish(equipment: Equipment) = dao.addPublication(equipment)
+
+    suspend fun undoPublication(id: Int) = dao.removePublication(id)
+
+    suspend fun transition(booking: Booking, next: String): Boolean {
+        val cancelledAt = if (next == cancelledBooking) LocalDateTime.now(bookingZone).toString() else null
+        return dao.transitionBooking(booking.id, booking.status, next, cancelledAt) == 1
+    }
 }

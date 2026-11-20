@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.feature.bookings.BookingWizard
+import pe.rentamaq.feature.account.AccountScreen
 import pe.rentamaq.feature.bookings.BookingsScreen
 import pe.rentamaq.core.data.bookingZone
 import pe.rentamaq.core.data.cancelledBooking
@@ -36,7 +37,6 @@ import pe.rentamaq.feature.explore.CatalogSearch
 import pe.rentamaq.feature.explore.CatalogResults
 import pe.rentamaq.feature.explore.EquipmentResult
 import pe.rentamaq.feature.explore.EquipmentType
-import pe.rentamaq.feature.explore.PhotoCredits
 import pe.rentamaq.feature.explore.type
 import java.text.Normalizer
 
@@ -73,7 +73,6 @@ fun RentamaqApp(model: CatalogViewModel) {
     val resultsScroll = key(search, type, zone, showAll) { rememberLazyListState() }
     val detailScroll = key(selectedId) { rememberLazyListState() }
     val bookingsScroll = rememberLazyListState()
-    val accountScroll = rememberLazyListState()
     val matches = equipment.filter {
         (zone == null || it.zone == zone) && (type == null || it.type() == type) &&
             (it.name.searchKey().contains(query) || it.description.searchKey().contains(query))
@@ -137,7 +136,7 @@ fun RentamaqApp(model: CatalogViewModel) {
             bottomBar = {
                 Column {
                     HorizontalDivider()
-                    if (inDetail) {
+                    if (inDetail && selected?.owned == false) {
                         Surface(color = MaterialTheme.colorScheme.surface) {
                             Button(
                                 onClick = { showBooking = true },
@@ -203,10 +202,33 @@ fun RentamaqApp(model: CatalogViewModel) {
                 )
                 return@Scaffold
             }
+            if (tab == 2) {
+                AccountScreen(
+                    modifier = Modifier.padding(padding),
+                    publications = equipment.filter { it.owned }.asReversed(),
+                    sectors = zones,
+                    onExplore = { selectedId = null; tab = 0 },
+                    onBookings = { tab = 1 },
+                    onOpen = { machine -> selectedId = machine.id; tab = 0 },
+                    onPublish = { machine, finished ->
+                        model.publish(machine) { id ->
+                            finished(id)
+                            if (id != null) scope.launch {
+                                val result = snackbar.showSnackbar(
+                                    context.getString(R.string.publication_saved),
+                                    actionLabel = context.getString(R.string.undo),
+                                    duration = SnackbarDuration.Long
+                                )
+                                if (result == SnackbarResult.ActionPerformed) model.undoPublication(id)
+                            }
+                        }
+                    }
+                )
+                return@Scaffold
+            }
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(padding),
                 state = when {
-                    tab == 2 -> accountScroll
                     selected != null -> detailScroll
                     filtered -> resultsScroll
                     else -> homeScroll
@@ -273,16 +295,6 @@ fun RentamaqApp(model: CatalogViewModel) {
                     } else {
                         item(key = selected.id) { EquipmentDetail(selected) }
                         item(key = "location-${selected.id}") { EquipmentLocation(selected.zone) }
-                    }
-                    2 -> item {
-                        Text(stringResource(R.string.account), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(16.dp))
-                        Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(14.dp)) {
-                            Text(stringResource(R.string.demo), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(4.dp))
-                            Text(stringResource(R.string.demo_message), style = MaterialTheme.typography.bodyMedium)
-                        }
-                        PhotoCredits()
                     }
                 }
             }

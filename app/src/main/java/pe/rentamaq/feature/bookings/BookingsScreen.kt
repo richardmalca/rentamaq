@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -43,6 +45,7 @@ fun BookingsScreen(
     var history by rememberSaveable { mutableStateOf(false) }
     var cancelId by rememberSaveable { mutableStateOf<Long?>(null) }
     var contactId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var refundId by rememberSaveable { mutableStateOf<Long?>(null) }
     var now by remember { mutableStateOf(LocalDateTime.now(bookingZone)) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -88,7 +91,8 @@ fun BookingsScreen(
         items(ordered, key = { it.id }) { booking ->
             val phase = booking.phase(now)
             BookingRecord(booking, equipment.find { it.name == booking.equipmentName }, phase,
-                onContact = { contactId = booking.id }, onCancel = { cancelId = booking.id })
+                onContact = { contactId = booking.id }, onCancel = { cancelId = booking.id },
+                onRefund = { refundId = booking.id })
         }
     }
 
@@ -101,10 +105,14 @@ fun BookingsScreen(
     bookings.find { it.id == contactId }?.let { booking ->
         BookingContactDialog(booking) { contactId = null }
     }
+    bookings.find { it.id == refundId }?.let { booking ->
+        RefundDialog(booking) { refundId = null }
+    }
 }
 
 @Composable
-private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingPhase, onContact: () -> Unit, onCancel: () -> Unit) {
+private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingPhase,
+    onContact: () -> Unit, onCancel: () -> Unit, onRefund: () -> Unit) {
     val theme = MaterialTheme.colorScheme
     val accent = phase == BookingPhase.EXPIRING
     Surface(
@@ -135,6 +143,30 @@ private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingP
             }
             BookingLine(if (booking.paidAmount == null) R.string.estimated_amount else R.string.amount_paid,
                 stringResource(R.string.price, booking.paidAmount ?: booking.total))
+            if (booking.paidAmount != null && (phase.canCancel() || phase == BookingPhase.CANCELLED)) {
+                Surface(color = theme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)) {
+                        val refund = booking.refundableAmount()
+                        val title = when {
+                            phase == BookingPhase.CANCELLED -> R.string.refund_tracking
+                            refund == null -> R.string.refund_terms
+                            refund == 0L -> R.string.no_refund_amount
+                            else -> R.string.refundable_label
+                        }
+                        Text(stringResource(title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                        if (refund != null) BookingLine(R.string.refund_estimate, stringResource(R.string.price, refund))
+                        if (refund != null && refund > 0) booking.refundWindowDays?.let {
+                            Text(stringResource(R.string.refund_window, it), style = MaterialTheme.typography.bodySmall)
+                        }
+                        if (phase == BookingPhase.CANCELLED && refund != 0L) {
+                            BookingLine(R.string.refund_review_step, stringResource(R.string.refund_review_pending))
+                        }
+                        TextButton(onClick = onRefund) {
+                            Text(stringResource(if (phase == BookingPhase.CANCELLED) R.string.view_refund_tracking else R.string.view_refund_terms))
+                        }
+                    }
+                }
+            }
             if (!phase.isInHistory() || (phase == BookingPhase.FINISHED && booking.providerPhone != null)) {
                 HorizontalDivider()
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -172,30 +204,65 @@ private fun BookingLine(label: Int, value: String) {
 @Composable
 private fun CancelBookingDialog(booking: Booking, onDismiss: () -> Unit, onConfirm: () -> Unit) {
     BookingActionDialog(R.string.cancel_booking_title, booking.equipmentName, onDismiss) {
-        val paid = booking.paidAmount
-        val fee = booking.cancellationFee
-        val window = booking.refundWindowDays
-        if (paid == null) {
+        if (booking.paidAmount == null) {
             Text(stringResource(R.string.cancel_unpaid), style = MaterialTheme.typography.bodyMedium)
-        } else if (fee != null && window != null) {
-            Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
-                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    BookingLine(R.string.amount_paid, stringResource(R.string.price, paid))
-                    BookingLine(R.string.cancellation_fee, stringResource(R.string.price, fee))
-                    HorizontalDivider()
-                    BookingLine(R.string.refund_estimate, stringResource(R.string.price, paid - fee))
-                    Text(stringResource(R.string.refund_window, window), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            if (booking.id < 0) Text(stringResource(R.string.demo_refund), style = MaterialTheme.typography.bodySmall)
         } else {
-            Text(stringResource(R.string.refund_policy_pending), style = MaterialTheme.typography.bodyMedium)
+            RefundTerms(booking)
         }
         Button(onClick = onDismiss, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.keep_booking))
         }
         TextButton(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.confirm_cancel_booking), color = MaterialTheme.colorScheme.error)
+        }
+    }
+}
+
+private fun Booking.refundableAmount(): Long? {
+    val paid = paidAmount ?: return null
+    val fee = cancellationFee ?: return null
+    return (paid - fee).coerceAtLeast(0L)
+}
+
+@Composable
+private fun RefundTerms(booking: Booking) {
+    val paid = booking.paidAmount ?: return
+    val fee = booking.cancellationFee
+    val refund = booking.refundableAmount()
+    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            BookingLine(R.string.amount_paid, stringResource(R.string.price, paid))
+            if (refund != null && fee != null) {
+                BookingLine(R.string.cancellation_fee, stringResource(R.string.price, fee))
+                HorizontalDivider()
+                BookingLine(R.string.refund_estimate, stringResource(R.string.price, refund))
+            } else {
+                Text(stringResource(R.string.refund_policy_pending), style = MaterialTheme.typography.bodySmall)
+            }
+            if (refund != null && refund > 0) booking.refundWindowDays?.let {
+                Text(stringResource(R.string.refund_window, it), style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+    if (booking.id < 0) Text(stringResource(R.string.demo_refund), style = MaterialTheme.typography.bodySmall)
+}
+
+@Composable
+private fun RefundDialog(booking: Booking, onDismiss: () -> Unit) {
+    val cancelled = booking.status == cancelledBooking
+    BookingActionDialog(if (cancelled) R.string.refund_tracking else R.string.refund_terms, booking.equipmentName, onDismiss) {
+        RefundTerms(booking)
+        val cancelledAt = booking.cancelledAt?.let { runCatching { LocalDateTime.parse(it) }.getOrNull() }
+        if (cancelled && booking.refundableAmount() != 0L) {
+            HorizontalDivider()
+            BookingLine(R.string.refund_cancelled_step, cancelledAt?.format(displayDate) ?: stringResource(R.string.refund_recorded))
+            BookingLine(R.string.refund_review_step, stringResource(R.string.refund_review_pending))
+            BookingLine(R.string.refund_transfer_step, stringResource(R.string.refund_not_started))
+        } else if (!cancelled) {
+            Text(stringResource(R.string.refund_process_explanation), style = MaterialTheme.typography.bodySmall)
+        }
+        Button(onClick = onDismiss, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
+            Text(stringResource(R.string.close_dialog))
         }
     }
 }
@@ -241,7 +308,8 @@ private fun BookingContactDialog(booking: Booking, onDismiss: () -> Unit) {
 private fun BookingActionDialog(title: Int, subtitle: String, onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(color = MaterialTheme.colorScheme.background, shape = MaterialTheme.shapes.large) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(subtitle, style = MaterialTheme.typography.titleSmall)
                 content()

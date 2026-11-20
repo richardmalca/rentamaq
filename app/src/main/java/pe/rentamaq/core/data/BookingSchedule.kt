@@ -64,6 +64,10 @@ internal fun demoBookings(): List<Booking> {
         Booking(-6, "Cargador frontal CAT 950K", tomorrow.minusDays(5).format(bookingDateTimeFormat),
             tomorrow.minusDays(5).plusHours(2).format(bookingDateTimeFormat), 350, cancelledBooking),
         Booking(-7, "Excavadora Komatsu PC200", now.minusHours(1).format(bookingDateTimeFormat),
-            now.plusHours(2).format(bookingDateTimeFormat), 465, confirmedBooking)
+            now.plusHours(2).format(bookingDateTimeFormat), 465, confirmedBooking),
+        Booking(-8, "Motoniveladora CAT 120K", tomorrow.minusDays(1).format(bookingDateTimeFormat),
+            tomorrow.minusDays(1).plusHours(3).format(bookingDateTimeFormat), 540, cancelledBooking,
+            paidAmount = 540, cancellationFee = 40, refundWindowDays = 5,
+            cancelledAt = now.minusDays(1).toString())
     )
 }

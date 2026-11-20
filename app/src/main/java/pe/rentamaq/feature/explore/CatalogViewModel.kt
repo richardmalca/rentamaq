@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import pe.rentamaq.core.data.CatalogRepository
 import pe.rentamaq.core.data.local.Booking
+import pe.rentamaq.core.data.local.Equipment
 
 class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() {
     val equipment = repository.equipment.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -40,5 +41,20 @@ class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() 
             }
             onUpdated(updated)
         }
+    }
+
+    fun publish(equipment: Equipment, onSaved: (Int?) -> Unit) {
+        viewModelScope.launch {
+            val id = try {
+                repository.publish(equipment)
+            } catch (_: android.database.sqlite.SQLiteException) {
+                null
+            }
+            onSaved(id)
+        }
+    }
+
+    fun undoPublication(id: Int) {
+        viewModelScope.launch { repository.undoPublication(id) }
     }
 }

@@ -13,7 +13,8 @@ data class Equipment(
     val zone: String,
     val hourlyRate: Int,
     val dailyRate: Int,
-    @ColumnInfo(defaultValue = "''") val category: String
+    @ColumnInfo(defaultValue = "''") val category: String,
+    @ColumnInfo(defaultValue = "0") val owned: Boolean = false
 )
 
 @Entity(tableName = "bookings")
@@ -28,7 +29,8 @@ data class Booking(
     val providerPhone: String? = null,
     val paidAmount: Long? = null,
     val cancellationFee: Long? = null,
-    val refundWindowDays: Int? = null
+    val refundWindowDays: Int? = null,
+    val cancelledAt: String? = null
 )
 
 @Dao
@@ -42,20 +44,36 @@ interface CatalogDao {
     @Upsert
     suspend fun seed(equipment: List<Equipment>)
 
+    @Query("SELECT COALESCE(MAX(id), 0) + 1 FROM equipment")
+    suspend fun nextEquipmentId(): Int
+
+    @Insert
+    suspend fun insertEquipment(equipment: Equipment)
+
+    @Transaction
+    suspend fun addPublication(equipment: Equipment): Int {
+        val id = nextEquipmentId()
+        insertEquipment(equipment.copy(id = id, owned = true))
+        return id
+    }
+
+    @Query("DELETE FROM equipment WHERE id = :id AND owned = 1")
+    suspend fun removePublication(id: Int)
+
     @Insert
     suspend fun insert(booking: Booking): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun seedBookings(bookings: List<Booking>)
 
-    @Query("UPDATE bookings SET status = :next WHERE id = :id AND status = :expected")
-    suspend fun transitionBooking(id: Long, expected: String, next: String): Int
+    @Query("UPDATE bookings SET status = :next, cancelledAt = :cancelledAt WHERE id = :id AND status = :expected")
+    suspend fun transitionBooking(id: Long, expected: String, next: String, cancelledAt: String?): Int
 
     @Query("DELETE FROM bookings WHERE id = :id")
     suspend fun remove(id: Long)
 }
 
-@Database(entities = [Equipment::class, Booking::class], version = 3, exportSchema = false)
+@Database(entities = [Equipment::class, Booking::class], version = 4, exportSchema = false)
 abstract class RentamaqDatabase : RoomDatabase() {
     abstract fun catalog(): CatalogDao
 }
@@ -74,5 +92,12 @@ val migrateBookingStatus = object : Migration(2, 3) {
         db.execSQL("ALTER TABLE bookings ADD COLUMN paidAmount INTEGER")
         db.execSQL("ALTER TABLE bookings ADD COLUMN cancellationFee INTEGER")
         db.execSQL("ALTER TABLE bookings ADD COLUMN refundWindowDays INTEGER")
+    }
+}
+
+val migrateAccountAndRefunds = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE equipment ADD COLUMN owned INTEGER NOT NULL DEFAULT 0")
+        db.execSQL("ALTER TABLE bookings ADD COLUMN cancelledAt TEXT")
     }
 }
