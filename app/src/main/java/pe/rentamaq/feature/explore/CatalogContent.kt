@@ -2,16 +2,21 @@ package pe.rentamaq.feature.explore
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
@@ -54,37 +59,50 @@ fun CatalogSearch(
             onValueChange = onSearch,
             modifier = Modifier.weight(1f),
             placeholder = { Text(stringResource(R.string.search_equipment)) },
-            leadingIcon = { Text("⌕", style = MaterialTheme.typography.headlineSmall) },
+            leadingIcon = { Icon(painterResource(R.drawable.ic_search), null) },
             singleLine = true,
-            shape = RoundedCornerShape(16.dp)
+            shape = MaterialTheme.shapes.small
         )
         FilledTonalButton(
             onClick = { open = true },
-            shape = RoundedCornerShape(16.dp),
+            shape = MaterialTheme.shapes.small,
             modifier = Modifier.heightIn(min = 56.dp),
             contentPadding = PaddingValues(horizontal = 12.dp)
         ) {
-            Text(if (filterCount == 0) stringResource(R.string.filters) else stringResource(R.string.active_filters, filterCount))
+            Icon(painterResource(R.drawable.ic_filters), null, Modifier.size(18.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(if (filterCount == 0) R.string.filters else R.string.active_filters, filterCount))
         }
     }
     if (open) {
         var draftType by rememberSaveable { mutableStateOf(type) }
         var draftZone by rememberSaveable { mutableStateOf(zone) }
-        ModalBottomSheet(onDismissRequest = { open = false }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        ModalBottomSheet(
+            onDismissRequest = { open = false },
+            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+            containerColor = MaterialTheme.colorScheme.background,
+            shape = MaterialTheme.shapes.large
+        ) {
             Column(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 20.dp)) {
                 Text(stringResource(R.string.filters), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(16.dp))
-                Text(stringResource(R.string.equipment_type), style = MaterialTheme.typography.titleSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    (listOf(null) + EquipmentType.entries).forEach { option ->
-                        FilterChip(draftType == option, { draftType = option }, { Text(stringResource(option?.label ?: R.string.all_equipment)) })
+                Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.equipment_type), style = MaterialTheme.typography.titleSmall)
+                    Column(Modifier.selectableGroup().padding(top = 6.dp)) {
+                        (listOf(null) + EquipmentType.entries).forEach { option ->
+                            FilterOption(stringResource(option?.label ?: R.string.all_equipment), draftType == option) {
+                                draftType = option
+                            }
+                        }
                     }
-                }
-                Spacer(Modifier.height(8.dp))
-                Text(stringResource(R.string.area), style = MaterialTheme.typography.titleSmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    (listOf(null) + zones).forEach { option ->
-                        FilterChip(draftZone == option, { draftZone = option }, { Text(option ?: stringResource(R.string.all_zones)) })
+                    Spacer(Modifier.height(16.dp))
+                    Text(stringResource(R.string.area), style = MaterialTheme.typography.titleSmall)
+                    Row(Modifier.fillMaxWidth().selectableGroup().padding(top = 6.dp)) {
+                        (listOf(null) + zones).forEach { option ->
+                            FilterOption(option ?: stringResource(R.string.all_zones), draftZone == option, Modifier.weight(1f), showMark = false) {
+                                draftZone = option
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -95,11 +113,37 @@ fun CatalogSearch(
                             onApply(draftType, draftZone)
                             open = false
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        shape = MaterialTheme.shapes.small
                     ) { Text(stringResource(R.string.apply_filters)) }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun FilterOption(
+    label: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    showMark: Boolean = true,
+    onSelect: () -> Unit
+) {
+    Column(modifier.selectable(selected, role = Role.RadioButton, onClick = onSelect)) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 48.dp)
+                .background(if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            if (selected && showMark) {
+                Icon(painterResource(R.drawable.ic_check), null, Modifier.size(18.dp))
+            }
+        }
+        HorizontalDivider()
     }
 }
 
@@ -112,7 +156,7 @@ fun CatalogCarousel(title: Int, machines: List<Equipment>, compact: Boolean, onO
                 if (compact) {
                     CompactEquipmentCard(machine, onOpen = { onOpen(machine.id) })
                 } else {
-                    EquipmentCard(machine, Modifier.width(276.dp), onOpen = { onOpen(machine.id) })
+                    FeaturedEquipment(machine, onOpen = { onOpen(machine.id) })
                 }
             }
         }
@@ -121,13 +165,14 @@ fun CatalogCarousel(title: Int, machines: List<Equipment>, compact: Boolean, onO
 
 @Composable
 private fun CompactEquipmentCard(machine: Equipment, onOpen: () -> Unit) {
-    OutlinedCard(onClick = onOpen, modifier = Modifier.width(164.dp), shape = RoundedCornerShape(16.dp)) {
-        EquipmentPhoto(machine, Modifier.height(106.dp))
-        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(Modifier.width(164.dp).clickable(role = Role.Button, onClick = onOpen)) {
+        EquipmentPhoto(machine, Modifier.height(110.dp).clip(MaterialTheme.shapes.small))
+        Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(machine.name, style = MaterialTheme.typography.titleSmall, minLines = 2, maxLines = 2)
             Text(stringResource(R.string.zone_label, machine.zone), style = MaterialTheme.typography.labelMedium)
             RateLabel(machine.hourlyRate, R.string.per_hour)
         }
+        HorizontalDivider()
     }
 }
 
@@ -155,36 +200,49 @@ fun EquipmentPhoto(machine: Equipment, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun EquipmentCard(machine: Equipment, modifier: Modifier = Modifier, onOpen: () -> Unit) {
-    OutlinedCard(onClick = onOpen, modifier = modifier, shape = RoundedCornerShape(20.dp), colors = CardDefaults.outlinedCardColors(
-        containerColor = MaterialTheme.colorScheme.surface
-    )) {
-        Box {
-            EquipmentPhoto(machine, Modifier.height(160.dp))
-            Surface(
-                modifier = Modifier.align(Alignment.TopStart).padding(12.dp),
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surface
-            ) {
-                Text(stringResource(R.string.zone_label, machine.zone), Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                    style = MaterialTheme.typography.labelMedium)
-            }
-        }
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(machine.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                RateLabel(machine.hourlyRate, R.string.per_hour)
-                RateLabel(machine.dailyRate, R.string.per_day)
+private fun FeaturedEquipment(machine: Equipment, onOpen: () -> Unit) {
+    Column(Modifier.width(282.dp).clip(MaterialTheme.shapes.medium).clickable(role = Role.Button, onClick = onOpen)) {
+        EquipmentPhoto(machine, Modifier.height(152.dp))
+        Column(
+            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.primary).padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            Text(stringResource(R.string.zone_label, machine.zone), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.secondaryContainer)
+            Text(machine.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                minLines = 2, maxLines = 2, color = MaterialTheme.colorScheme.onPrimary)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.rate, machine.hourlyRate, machine.dailyRate),
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.weight(1f))
+                Icon(painterResource(R.drawable.ic_arrow), null, tint = MaterialTheme.colorScheme.secondaryContainer)
             }
         }
     }
 }
 
 @Composable
+fun EquipmentResult(machine: Equipment, onOpen: () -> Unit) {
+    Column {
+        Row(
+            Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen).padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically
+        ) {
+            EquipmentPhoto(machine, Modifier.size(width = 96.dp, height = 84.dp).clip(MaterialTheme.shapes.small))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.zone_label, machine.zone), style = MaterialTheme.typography.labelMedium)
+                Text(machine.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.rate, machine.hourlyRate, machine.dailyRate), style = MaterialTheme.typography.bodySmall)
+            }
+            Icon(painterResource(R.drawable.ic_arrow), null)
+        }
+        HorizontalDivider()
+    }
+}
+
+@Composable
 private fun RateLabel(amount: Int, unit: Int) {
     Row(
-        modifier = Modifier.clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

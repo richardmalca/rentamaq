@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">Rentamaq</string>
     <string name="explore">Explorar</string>
+    <string name="browse_equipment">Explorar maquinaria</string>
     <string name="bookings">Reservas</string>
     <string name="account">Mi cuenta</string>
     <string name="location">CAJAMARCA, PERÚ</string>
