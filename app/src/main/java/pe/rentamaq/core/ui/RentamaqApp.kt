@@ -25,6 +25,7 @@ import pe.rentamaq.feature.account.AccountScreen
 import pe.rentamaq.feature.bookings.BookingsScreen
 import pe.rentamaq.core.data.bookingZone
 import pe.rentamaq.core.data.cancelledBooking
+import pe.rentamaq.core.data.confirmedBooking
 import pe.rentamaq.core.data.canCancel
 import pe.rentamaq.core.data.phase
 import java.time.LocalDateTime
@@ -136,7 +137,7 @@ fun RentamaqApp(model: CatalogViewModel) {
             bottomBar = {
                 Column {
                     HorizontalDivider()
-                    if (inDetail && selected?.owned == false) {
+                    if (inDetail && !selected.owned) {
                         Surface(color = MaterialTheme.colorScheme.surface) {
                             Button(
                                 onClick = { showBooking = true },
@@ -170,7 +171,8 @@ fun RentamaqApp(model: CatalogViewModel) {
             }
         ) { padding ->
             if (tab == 1) {
-                BookingsScreen(bookings, equipment, bookingsScroll, Modifier.padding(padding),
+                BookingsScreen(bookings, equipment, bookingsScroll, Modifier.padding(padding), model,
+                    onNotice = { notice -> scope.launch { snackbar.showSnackbar(context.getString(notice)) } },
                     onExplore = { selectedId = null; tab = 0 },
                     onCancel = { booking ->
                         if (!booking.phase(LocalDateTime.now(bookingZone)).canCancel()) {
@@ -180,7 +182,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                 scope.launch {
                                     val result = snackbar.showSnackbar(
                                         context.getString(if (updated) R.string.booking_cancelled_notice else R.string.cancel_unavailable),
-                                        actionLabel = if (updated) context.getString(R.string.undo) else null,
+                                        actionLabel = if (updated && booking.paidAmount == null) context.getString(R.string.undo) else null,
                                         duration = SnackbarDuration.Long
                                     )
                                     if (result == SnackbarResult.ActionPerformed) {
@@ -216,7 +218,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                             if (id != null) scope.launch {
                                 val result = snackbar.showSnackbar(
                                     context.getString(R.string.publication_saved),
-                                    actionLabel = context.getString(R.string.undo),
+                                    actionLabel = if (machine.id == 0) context.getString(R.string.undo) else null,
                                     duration = SnackbarDuration.Long
                                 )
                                 if (result == SnackbarResult.ActionPerformed) model.undoPublication(id)
@@ -293,7 +295,12 @@ fun RentamaqApp(model: CatalogViewModel) {
                             }
                         }
                     } else {
-                        item(key = selected.id) { EquipmentDetail(selected) }
+                        item(key = selected.id) {
+                            EquipmentDetail(selected, canViewDocuments = selected.owned || bookings.any {
+                                it.status == confirmedBooking && (it.equipmentId == selected.id ||
+                                    (it.equipmentId == null && it.equipmentName == selected.name))
+                            })
+                        }
                         item(key = "location-${selected.id}") { EquipmentLocation(selected.zone) }
                     }
                 }

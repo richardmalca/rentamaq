@@ -108,7 +108,7 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
                                         saving = true
                                         saveError = false
                                         onSave(Booking(equipmentName = machine.name, start = start.format(bookingFormat),
-                                            end = end.format(bookingFormat), total = total)) { success ->
+                                            end = end.format(bookingFormat), total = total, equipmentId = machine.id)) { success ->
                                             saving = false
                                             saveError = !success
                                         }
@@ -200,7 +200,6 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
                                 fontWeight = FontWeight.Bold)
                         }
                     }
-                    Text(stringResource(R.string.local_request_notice), style = MaterialTheme.typography.bodySmall)
                     if (saveError) Text(stringResource(R.string.save_failed), color = MaterialTheme.colorScheme.error)
                 }
             }

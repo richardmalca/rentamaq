@@ -57,4 +57,18 @@ class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() 
     fun undoPublication(id: Int) {
         viewModelScope.launch { repository.undoPublication(id) }
     }
+
+    fun pay(booking: Booking, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.pay(booking)) }
+    }
+
+    fun advanceRefund(booking: Booking, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.advanceRefund(booking)) }
+    }
+
+    fun messages(bookingId: Long) = repository.messages(bookingId)
+
+    fun sendMessage(booking: Booking, text: String, fromProvider: Boolean) {
+        viewModelScope.launch { repository.sendMessage(booking, text, fromProvider) }
+    }
 }

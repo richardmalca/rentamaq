@@ -14,7 +14,16 @@ data class Equipment(
     val hourlyRate: Int,
     val dailyRate: Int,
     @ColumnInfo(defaultValue = "''") val category: String,
-    @ColumnInfo(defaultValue = "0") val owned: Boolean = false
+    @ColumnInfo(defaultValue = "0") val owned: Boolean = false,
+    val photos: String? = null,
+    val blockedFrom: String? = null,
+    val blockedUntil: String? = null,
+    val serviceDate: String? = null,
+    val serviceHours: Int? = null,
+    val serviceNotes: String? = null,
+    val serviceProvider: String? = null,
+    val nextServiceDate: String? = null,
+    val serviceDocument: String? = null
 )
 
 @Entity(tableName = "bookings")
@@ -30,7 +39,17 @@ data class Booking(
     val paidAmount: Long? = null,
     val cancellationFee: Long? = null,
     val refundWindowDays: Int? = null,
-    val cancelledAt: String? = null
+    val cancelledAt: String? = null,
+    val equipmentId: Int? = null,
+    val refundState: String? = null
+)
+
+@Entity(tableName = "booking_messages")
+data class BookingMessage(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val bookingId: Long,
+    val text: String,
+    val fromProvider: Boolean
 )
 
 @Dao
@@ -41,6 +60,18 @@ interface CatalogDao {
     @Query("SELECT * FROM bookings ORDER BY id DESC")
     fun bookings(): Flow<List<Booking>>
 
+    @Query("SELECT * FROM bookings")
+    suspend fun bookingSnapshot(): List<Booking>
+
+    @Query("SELECT * FROM equipment WHERE id = :id")
+    suspend fun equipmentById(id: Int): Equipment?
+
+    @Query("SELECT * FROM booking_messages WHERE bookingId = :bookingId ORDER BY id")
+    fun messages(bookingId: Long): Flow<List<BookingMessage>>
+
+    @Insert
+    suspend fun addMessage(message: BookingMessage)
+
     @Upsert
     suspend fun seed(equipment: List<Equipment>)
 
@@ -49,6 +80,9 @@ interface CatalogDao {
 
     @Insert
     suspend fun insertEquipment(equipment: Equipment)
+
+    @Update
+    suspend fun updateEquipment(equipment: Equipment): Int
 
     @Transaction
     suspend fun addPublication(equipment: Equipment): Int {
@@ -66,14 +100,23 @@ interface CatalogDao {
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun seedBookings(bookings: List<Booking>)
 
-    @Query("UPDATE bookings SET status = :next, cancelledAt = :cancelledAt WHERE id = :id AND status = :expected")
-    suspend fun transitionBooking(id: Long, expected: String, next: String, cancelledAt: String?): Int
+    @Query("UPDATE bookings SET status = :next, cancelledAt = :cancelledAt, refundState = :refund WHERE id = :id AND status = :expected")
+    suspend fun transitionBooking(id: Long, expected: String, next: String, cancelledAt: String?, refund: String?): Int
+
+    @Query("UPDATE bookings SET paidAmount = total, cancellationFee = MIN(40, total), refundWindowDays = 5 WHERE id = :id AND paidAmount IS NULL AND status = 'CONFIRMED'")
+    suspend fun pay(id: Long): Int
+
+    @Query("UPDATE bookings SET refundState = :next WHERE id = :id AND status = 'CANCELLED' AND refundState = :expected")
+    suspend fun advanceRefund(id: Long, expected: String, next: String): Int
 
     @Query("DELETE FROM bookings WHERE id = :id")
     suspend fun remove(id: Long)
+
+    @Query("DELETE FROM booking_messages WHERE bookingId = :id")
+    suspend fun removeMessages(id: Long)
 }
 
-@Database(entities = [Equipment::class, Booking::class], version = 4, exportSchema = false)
+@Database(entities = [Equipment::class, Booking::class, BookingMessage::class], version = 6, exportSchema = false)
 abstract class RentamaqDatabase : RoomDatabase() {
     abstract fun catalog(): CatalogDao
 }
@@ -99,5 +142,28 @@ val migrateAccountAndRefunds = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE equipment ADD COLUMN owned INTEGER NOT NULL DEFAULT 0")
         db.execSQL("ALTER TABLE bookings ADD COLUMN cancelledAt TEXT")
+    }
+}
+
+val migrateLocalWorkflows = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE equipment ADD COLUMN photos TEXT")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN blockedFrom TEXT")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN blockedUntil TEXT")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN serviceDate TEXT")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN serviceHours INTEGER")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN serviceNotes TEXT")
+        db.execSQL("ALTER TABLE bookings ADD COLUMN equipmentId INTEGER")
+        db.execSQL("ALTER TABLE bookings ADD COLUMN refundState TEXT")
+        db.execSQL("UPDATE bookings SET refundState = 'REQUESTED' WHERE status = 'CANCELLED' AND paidAmount > COALESCE(cancellationFee, 0)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS booking_messages (id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, bookingId INTEGER NOT NULL, text TEXT NOT NULL, fromProvider INTEGER NOT NULL)")
+    }
+}
+
+val migrateServiceDocuments = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE equipment ADD COLUMN serviceProvider TEXT")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN nextServiceDate TEXT")
+        db.execSQL("ALTER TABLE equipment ADD COLUMN serviceDocument TEXT")
     }
 }

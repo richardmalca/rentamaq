@@ -11,9 +11,11 @@ val bookingDateTimeFormat: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/M
 const val pendingBooking = "PENDING"
 const val confirmedBooking = "CONFIRMED"
 const val cancelledBooking = "CANCELLED"
+const val rejectedBooking = "REJECTED"
+const val finishedBooking = "FINISHED"
 
 enum class BookingPhase {
-    EXPIRING, IN_PROGRESS, CONFIRMED, PENDING, FINISHED, EXPIRED, CANCELLED
+    EXPIRING, IN_PROGRESS, CONFIRMED, PENDING, FINISHED, EXPIRED, CANCELLED, REJECTED
 }
 
 fun Booking.startTime(): LocalDateTime? =
@@ -31,6 +33,8 @@ fun Booking.phase(now: LocalDateTime): BookingPhase {
     val deadline = deadline()
     return when {
         status == cancelledBooking -> BookingPhase.CANCELLED
+        status == rejectedBooking -> BookingPhase.REJECTED
+        status == finishedBooking -> BookingPhase.FINISHED
         status == confirmedBooking && end != null && now >= end -> BookingPhase.FINISHED
         status == confirmedBooking && start != null && now >= start -> BookingPhase.IN_PROGRESS
         status == confirmedBooking -> BookingPhase.CONFIRMED
@@ -41,7 +45,7 @@ fun Booking.phase(now: LocalDateTime): BookingPhase {
 }
 
 fun BookingPhase.isInHistory() =
-    this == BookingPhase.FINISHED || this == BookingPhase.EXPIRED || this == BookingPhase.CANCELLED
+    this == BookingPhase.FINISHED || this == BookingPhase.EXPIRED || this == BookingPhase.CANCELLED || this == BookingPhase.REJECTED
 
 fun BookingPhase.canCancel() =
     this == BookingPhase.PENDING || this == BookingPhase.EXPIRING || this == BookingPhase.CONFIRMED
@@ -68,6 +72,6 @@ internal fun demoBookings(): List<Booking> {
         Booking(-8, "Motoniveladora CAT 120K", tomorrow.minusDays(1).format(bookingDateTimeFormat),
             tomorrow.minusDays(1).plusHours(3).format(bookingDateTimeFormat), 540, cancelledBooking,
             paidAmount = 540, cancellationFee = 40, refundWindowDays = 5,
-            cancelledAt = now.minusDays(1).toString())
+            cancelledAt = now.minusDays(1).toString(), refundState = "REQUESTED")
     )
 }

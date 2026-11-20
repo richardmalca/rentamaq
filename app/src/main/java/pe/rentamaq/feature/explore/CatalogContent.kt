@@ -27,6 +27,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import pe.rentamaq.R
 import pe.rentamaq.core.data.local.Equipment
+import pe.rentamaq.feature.equipment.StoredEquipmentPhoto
+import pe.rentamaq.feature.equipment.photoUris
 
 enum class EquipmentType(val label: Int, val photo: Int) {
     EXCAVATOR(R.string.excavators, R.drawable.excavator),
@@ -230,12 +232,13 @@ fun CatalogResults(count: Int, onClear: () -> Unit) {
 @Composable
 fun EquipmentPhoto(machine: Equipment, modifier: Modifier = Modifier) {
     val photo = machine.type()?.photo ?: return
-    Image(
-        painter = painterResource(photo),
-        contentDescription = stringResource(R.string.reference_photo, machine.name),
-        modifier = modifier.fillMaxWidth(),
-        contentScale = ContentScale.Crop
-    )
+    val fallback: @Composable () -> Unit = {
+        Image(painterResource(photo), stringResource(R.string.reference_photo, machine.name),
+            modifier.fillMaxWidth(), contentScale = ContentScale.Crop)
+    }
+    val uri = machine.photoUris().firstOrNull()
+    if (uri == null) fallback()
+    else StoredEquipmentPhoto(uri, machine.name, modifier.fillMaxWidth(), fallback)
 }
 
 @Composable

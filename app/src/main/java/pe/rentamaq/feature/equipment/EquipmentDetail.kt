@@ -21,7 +21,7 @@ import pe.rentamaq.core.data.local.Equipment
 import pe.rentamaq.feature.explore.type
 
 @Composable
-fun EquipmentDetail(machine: Equipment) {
+fun EquipmentDetail(machine: Equipment, canViewDocuments: Boolean) {
     val maintenance = when (machine.id) {
         1 -> listOf(
             MaintenanceEntry("12/11/2026", 4820, R.string.excavator_maintenance),
@@ -30,6 +30,7 @@ fun EquipmentDetail(machine: Equipment) {
         2 -> listOf(MaintenanceEntry("05/11/2026", 3250, R.string.backhoe_maintenance))
         else -> emptyList()
     }
+    val ownMaintenance = machine.serviceNotes
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         EquipmentGallery(machine)
@@ -47,11 +48,19 @@ fun EquipmentDetail(machine: Equipment) {
             machine.type()?.let { Text(stringResource(it.label), style = MaterialTheme.typography.labelLarge) }
         }
         DetailSection(R.string.maintenance) {
-            if (maintenance.isEmpty()) {
+            if (ownMaintenance != null) {
+                Text(stringResource(R.string.maintenance_metadata, machine.serviceDate.orEmpty(), machine.serviceHours ?: 0),
+                    style = MaterialTheme.typography.labelLarge)
+                Text(ownMaintenance, style = MaterialTheme.typography.bodyMedium)
+                machine.serviceProvider?.let { Text(stringResource(R.string.service_provider_summary, it)) }
+                machine.nextServiceDate?.let { Text(stringResource(R.string.next_service_summary, it)) }
+                if (canViewDocuments) ServiceDocumentActions(machine)
+                else if (machine.serviceDocument != null) {
+                    Text(stringResource(R.string.service_document_after_booking), style = MaterialTheme.typography.bodySmall)
+                }
+            } else if (maintenance.isEmpty()) {
                 Text(stringResource(R.string.no_maintenance))
             } else {
-                Text(stringResource(R.string.sample_maintenance), style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
                 maintenance.forEach { entry ->
                     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -59,6 +68,11 @@ fun EquipmentDetail(machine: Equipment) {
                         Text(stringResource(entry.service), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+            }
+        }
+        if (machine.blockedFrom != null && machine.blockedUntil != null) {
+            DetailSection(R.string.availability) {
+                Text(stringResource(R.string.unavailable_dates, machine.blockedFrom, machine.blockedUntil))
             }
         }
     }
@@ -83,7 +97,9 @@ private fun EquipmentGallery(machine: Equipment) {
         else -> null
     }
     val photos = listOfNotNull(primary, alternate)
-    val pager = rememberPagerState { photos.size }
+    val uploaded = machine.photoUris()
+    val photoCount = uploaded.size.takeIf { it > 0 } ?: photos.size
+    val pager = rememberPagerState { photoCount }
     val scope = rememberCoroutineScope()
 
     Column {
@@ -91,21 +107,27 @@ private fun EquipmentGallery(machine: Equipment) {
             state = pager,
             modifier = Modifier.fillMaxWidth().aspectRatio(1.55f).clip(MaterialTheme.shapes.medium)
         ) { index ->
-            Image(painterResource(photos[index]), stringResource(R.string.reference_photo, machine.name),
-                Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            val uri = uploaded.getOrNull(index)
+            val fallback: @Composable () -> Unit = {
+                Image(painterResource(photos.getOrElse(index) { primary }), stringResource(R.string.reference_photo, machine.name),
+                    Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            }
+            if (uri == null) fallback() else StoredEquipmentPhoto(uri, machine.name, Modifier.fillMaxSize(), fallback)
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(stringResource(if (photos.size == 1) R.string.photo_label else R.string.gallery_caption,
-                pager.currentPage + 1, photos.size), style = MaterialTheme.typography.bodySmall)
-            if (photos.size > 1) {
+            val caption = if (uploaded.isEmpty()) {
+                if (photoCount == 1) R.string.photo_label else R.string.gallery_caption
+            } else R.string.uploaded_gallery_caption
+            Text(stringResource(caption, pager.currentPage + 1, photoCount), style = MaterialTheme.typography.bodySmall)
+            if (photoCount > 1) {
                 Row {
                     IconButton(
                         enabled = pager.currentPage > 0,
                         onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } }
                     ) { Icon(painterResource(R.drawable.ic_back), stringResource(R.string.previous_photo)) }
                     IconButton(
-                        enabled = pager.currentPage < photos.lastIndex,
+                        enabled = pager.currentPage < photoCount - 1,
                         onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } }
                     ) { Icon(painterResource(R.drawable.ic_arrow), stringResource(R.string.next_photo)) }
                 }
