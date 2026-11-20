@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.feature.bookings.BookingWizard
 import pe.rentamaq.feature.account.AccountScreen
+import pe.rentamaq.feature.account.rememberAccountSession
 import pe.rentamaq.feature.bookings.BookingsScreen
 import pe.rentamaq.core.data.bookingZone
 import pe.rentamaq.core.data.cancelledBooking
@@ -45,6 +46,7 @@ private val background = Color(0xFFFAF9F5)
 private val accent = Color(0xFFF6D45E)
 private val ink = Color(0xFF232518)
 private val combiningMarks = Regex("\\p{M}+")
+private enum class AccountDestination { RESERVATION, BOOKINGS }
 
 private fun String.searchKey() = Normalizer.normalize(this, Normalizer.Form.NFD)
     .replace(combiningMarks, "").lowercase()
@@ -60,6 +62,8 @@ fun RentamaqApp(model: CatalogViewModel) {
     var type by rememberSaveable { mutableStateOf<EquipmentType?>(null) }
     var showAll by rememberSaveable { mutableStateOf(false) }
     var showBooking by rememberSaveable { mutableStateOf(false) }
+    var accountDestination by rememberSaveable { mutableStateOf<AccountDestination?>(null) }
+    val session = rememberAccountSession()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -97,7 +101,7 @@ fun RentamaqApp(model: CatalogViewModel) {
         onPrimaryContainer = ink, surfaceVariant = Color(0xFFF4F1E7), outlineVariant = Color(0xFFE7E3D9),
         onSurface = ink, onSurfaceVariant = Color(0xFF535246), outline = Color(0xFF777568)
     )) {
-        if (showBooking && selected != null) {
+        if (showBooking && session.signedIn && selected != null && !selected.owned) {
             BookingWizard(selected, onClose = { showBooking = false }) { booking, finished ->
                 model.reserve(booking) { id ->
                     finished(id != null)
@@ -110,7 +114,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                             actionLabel = context.getString(R.string.undo),
                             duration = SnackbarDuration.Long
                         )
-                        if (result == SnackbarResult.ActionPerformed) model.undo(id)
+                        if (result == SnackbarResult.ActionPerformed && session.signedIn) model.undo(id)
                     }
                 }
             }
@@ -140,7 +144,14 @@ fun RentamaqApp(model: CatalogViewModel) {
                     if (inDetail && !selected.owned) {
                         Surface(color = MaterialTheme.colorScheme.surface) {
                             Button(
-                                onClick = { showBooking = true },
+                                onClick = {
+                                    if (session.signedIn) {
+                                        showBooking = true
+                                    } else {
+                                        accountDestination = AccountDestination.RESERVATION
+                                        tab = 2
+                                    }
+                                },
                                 modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
                                 shape = MaterialTheme.shapes.small
                             ) { Text(stringResource(R.string.reserve)) }
@@ -153,6 +164,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                 selected = tab == index,
                                 onClick = {
                                     if (tab == index && index == 0) selectedId = null
+                                    if (index != 2) accountDestination = null
                                     tab = index
                                 },
                                 colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent),
@@ -171,6 +183,18 @@ fun RentamaqApp(model: CatalogViewModel) {
             }
         ) { padding ->
             if (tab == 1) {
+                if (!session.signedIn) {
+                    Column(Modifier.padding(padding).padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.bookings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                        Text(stringResource(R.string.account_required_bookings), style = MaterialTheme.typography.bodyLarge)
+                        Button(onClick = { accountDestination = AccountDestination.BOOKINGS; tab = 2 },
+                            shape = MaterialTheme.shapes.small) {
+                            Text(stringResource(if (session.email.isBlank()) R.string.create_account else R.string.sign_in))
+                        }
+                    }
+                    return@Scaffold
+                }
                 BookingsScreen(bookings, equipment, bookingsScroll, Modifier.padding(padding), model,
                     onNotice = { notice -> scope.launch { snackbar.showSnackbar(context.getString(notice)) } },
                     onExplore = { selectedId = null; tab = 0 },
@@ -185,7 +209,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                         actionLabel = if (updated && booking.paidAmount == null) context.getString(R.string.undo) else null,
                                         duration = SnackbarDuration.Long
                                     )
-                                    if (result == SnackbarResult.ActionPerformed) {
+                                    if (result == SnackbarResult.ActionPerformed && session.signedIn) {
                                         if (booking.phase(LocalDateTime.now(bookingZone)).canCancel()) {
                                             model.changeBookingStatus(booking.copy(status = cancelledBooking), booking.status) { restored ->
                                                 scope.launch {
@@ -207,13 +231,35 @@ fun RentamaqApp(model: CatalogViewModel) {
             if (tab == 2) {
                 AccountScreen(
                     modifier = Modifier.padding(padding),
+                    session = session,
                     publications = equipment.filter { it.owned }.asReversed(),
                     sectors = zones,
+                    requiredMessage = when (accountDestination) {
+                        AccountDestination.RESERVATION -> R.string.account_required_reserve
+                        AccountDestination.BOOKINGS -> R.string.account_required_bookings
+                        null -> null
+                    },
+                    onAuthenticated = {
+                        when (accountDestination) {
+                            AccountDestination.RESERVATION -> {
+                                tab = 0
+                                showBooking = selected?.owned == false
+                            }
+                            AccountDestination.BOOKINGS -> tab = 1
+                            null -> Unit
+                        }
+                        accountDestination = null
+                    },
+                    onAuthBack = {
+                        tab = if (accountDestination == AccountDestination.RESERVATION) 0 else 1
+                        accountDestination = null
+                    },
                     onExplore = { selectedId = null; tab = 0 },
                     onBookings = { tab = 1 },
                     onOpen = { machine -> selectedId = machine.id; tab = 0 },
                     onPublish = { machine, finished ->
-                        model.publish(machine) { id ->
+                        if (!session.signedIn) finished(null)
+                        else model.publish(machine) { id ->
                             finished(id)
                             if (id != null) scope.launch {
                                 val result = snackbar.showSnackbar(
@@ -221,7 +267,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                     actionLabel = if (machine.id == 0) context.getString(R.string.undo) else null,
                                     duration = SnackbarDuration.Long
                                 )
-                                if (result == SnackbarResult.ActionPerformed) model.undoPublication(id)
+                                if (result == SnackbarResult.ActionPerformed && session.signedIn) model.undoPublication(id)
                             }
                         }
                     }
@@ -296,10 +342,10 @@ fun RentamaqApp(model: CatalogViewModel) {
                         }
                     } else {
                         item(key = selected.id) {
-                            EquipmentDetail(selected, canViewDocuments = selected.owned || bookings.any {
+                            EquipmentDetail(selected, canViewDocuments = session.signedIn && (selected.owned || bookings.any {
                                 it.status == confirmedBooking && (it.equipmentId == selected.id ||
                                     (it.equipmentId == null && it.equipmentName == selected.name))
-                            })
+                            }))
                         }
                         item(key = "location-${selected.id}") { EquipmentLocation(selected.zone) }
                     }

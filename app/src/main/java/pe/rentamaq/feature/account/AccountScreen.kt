@@ -34,23 +34,36 @@ private enum class AccountPage { HOME, EDIT, PUBLISH, CREDITS, SIGN_IN }
 @Composable
 fun AccountScreen(
     modifier: Modifier,
+    session: AccountSession,
     publications: List<Equipment>,
     sectors: List<String>,
+    requiredMessage: Int?,
+    onAuthenticated: () -> Unit,
+    onAuthBack: () -> Unit,
     onExplore: () -> Unit,
     onBookings: () -> Unit,
     onOpen: (Equipment) -> Unit,
     onPublish: (Equipment, (Int?) -> Unit) -> Unit
 ) {
-    val context = LocalContext.current
-    val preferences = remember(context) { context.getSharedPreferences("rentamaq_profile", 0) }
-    var name by remember { mutableStateOf(preferences.getString("name", "").orEmpty()) }
-    var company by remember { mutableStateOf(preferences.getBoolean("company", false)) }
-    var email by remember { mutableStateOf(preferences.getString("email", "").orEmpty()) }
-    var signedIn by remember { mutableStateOf(preferences.getBoolean("signed_in", name.isNotBlank())) }
-    var page by rememberSaveable { mutableStateOf(AccountPage.HOME) }
+    val signedIn = session.signedIn
+    val name = if (signedIn) session.name else ""
+    val company = signedIn && session.company
+    val authPage = if (session.email.isBlank()) AccountPage.EDIT else AccountPage.SIGN_IN
+    var page by rememberSaveable { mutableStateOf(if (requiredMessage == null) AccountPage.HOME else authPage) }
     var editingId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var publishAfterSignIn by rememberSaveable { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
-    val back = { if (!saving) page = AccountPage.HOME }
+    val back = {
+        if (!saving) {
+            publishAfterSignIn = false
+            if (requiredMessage != null && !signedIn) onAuthBack() else page = AccountPage.HOME
+        }
+    }
+    fun signedInSuccessfully() {
+        page = if (publishAfterSignIn) AccountPage.PUBLISH else AccountPage.HOME
+        publishAfterSignIn = false
+        onAuthenticated()
+    }
     BackHandler(page != AccountPage.HOME, onBack = back)
     val scrollState = key(page) { rememberScrollState() }
 
@@ -89,8 +102,8 @@ fun AccountScreen(
                             Text(name.ifBlank { stringResource(R.string.local_profile) }, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text(stringResource(if (company) R.string.company_profile else R.string.personal_profile), style = MaterialTheme.typography.bodySmall)
                         }
-                        TextButton(onClick = { page = if (signedIn || email.isBlank()) AccountPage.EDIT else AccountPage.SIGN_IN }) {
-                            Text(stringResource(if (signedIn) R.string.edit_schedule else if (email.isBlank()) R.string.create_account else R.string.sign_in))
+                        TextButton(onClick = { page = if (signedIn) AccountPage.EDIT else authPage }) {
+                            Text(stringResource(if (signedIn) R.string.edit_schedule else if (session.email.isBlank()) R.string.create_account else R.string.sign_in))
                         }
                     }
                 }
@@ -100,8 +113,12 @@ fun AccountScreen(
                 }
                 AccountSection(R.string.offer_equipment) {
                     AccountLink(R.string.publish_equipment, R.string.publish_account_help, R.drawable.ic_explore,
-                        onOpen = { editingId = null; page = AccountPage.PUBLISH })
-                    if (publications.isNotEmpty()) {
+                        onOpen = {
+                            editingId = null
+                            publishAfterSignIn = !signedIn
+                            page = if (signedIn) AccountPage.PUBLISH else authPage
+                        })
+                    if (signedIn && publications.isNotEmpty()) {
                         Text(stringResource(R.string.my_publications), style = MaterialTheme.typography.titleSmall)
                         publications.forEach { machine ->
                             EquipmentResult(machine) { onOpen(machine) }
@@ -114,21 +131,16 @@ fun AccountScreen(
                 HorizontalDivider()
                 AccountLink(R.string.photo_credits, R.string.credits_account_help, R.drawable.ic_arrow,
                     onOpen = { page = AccountPage.CREDITS })
-                if (signedIn) TextButton(onClick = {
-                    preferences.edit().putBoolean("signed_in", false).apply()
-                    signedIn = false
-                }) { Text(stringResource(R.string.sign_out)) }
+                if (signedIn) TextButton(onClick = session::signOut) { Text(stringResource(R.string.sign_out)) }
             }
-            AccountPage.EDIT -> EditLocalProfile(name, company, email) { newName, isCompany, newEmail ->
-                preferences.edit().putString("name", newName).putBoolean("company", isCompany)
-                    .putString("email", newEmail).putBoolean("signed_in", true).apply()
-                name = newName
-                company = isCompany
-                email = newEmail
-                signedIn = true
-                page = AccountPage.HOME
+            AccountPage.EDIT -> {
+                if (!signedIn) AuthExplanation(requiredMessage, publishAfterSignIn)
+                EditLocalProfile(name, company, if (signedIn) session.email else "") { newName, isCompany, newEmail ->
+                    session.save(newName, isCompany, newEmail)
+                    signedInSuccessfully()
+                }
             }
-            AccountPage.PUBLISH -> PublicationForm(sectors, saving, publications.find { it.id == editingId }) { machine, finished ->
+            AccountPage.PUBLISH -> if (signedIn) PublicationForm(sectors, saving, publications.find { it.id == editingId }) { machine, finished ->
                 saving = true
                 onPublish(machine) { id ->
                     saving = false
@@ -138,18 +150,17 @@ fun AccountScreen(
             }
             AccountPage.CREDITS -> PhotoCredits()
             AccountPage.SIGN_IN -> {
+                AuthExplanation(requiredMessage, publishAfterSignIn)
                 var enteredEmail by rememberSaveable { mutableStateOf("") }
                 var mismatch by rememberSaveable { mutableStateOf(false) }
                 OutlinedTextField(enteredEmail, { enteredEmail = it; mismatch = false }, Modifier.fillMaxWidth(), singleLine = true,
                     label = { Text(stringResource(R.string.account_email)) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email))
                 if (mismatch) Text(stringResource(R.string.account_not_found), color = MaterialTheme.colorScheme.error)
                 Button(onClick = {
-                    if (!enteredEmail.trim().equals(email, ignoreCase = true)) {
+                    if (!session.signIn(enteredEmail)) {
                         mismatch = true
                     } else {
-                        preferences.edit().putBoolean("signed_in", true).apply()
-                        signedIn = true
-                        page = AccountPage.HOME
+                        signedInSuccessfully()
                     }
                 }, enabled = enteredEmail.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
                     Text(stringResource(R.string.sign_in))
@@ -157,6 +168,12 @@ fun AccountScreen(
             }
         }
     }
+}
+
+@Composable
+private fun AuthExplanation(requiredMessage: Int?, publishAfterSignIn: Boolean) {
+    val message = if (publishAfterSignIn) R.string.account_required_publish else requiredMessage
+    if (message != null) Text(stringResource(message), style = MaterialTheme.typography.bodyMedium)
 }
 
 @Composable

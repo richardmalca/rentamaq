@@ -90,6 +90,9 @@
     <string name="sign_out">Cerrar sesión</string>
     <string name="account_email">Correo electrónico</string>
     <string name="account_not_found">No encontramos una cuenta con ese correo.</string>
+    <string name="account_required_reserve">Crea una cuenta o inicia sesión para solicitar el alquiler.</string>
+    <string name="account_required_publish">Crea una cuenta o inicia sesión para registrar maquinaria.</string>
+    <string name="account_required_bookings">Crea una cuenta o inicia sesión para consultar y gestionar tus reservas.</string>
     <string name="profile_name">Nombre</string>
     <string name="company_name">Nombre de la empresa</string>
     <string name="save_profile">Guardar perfil</string>
