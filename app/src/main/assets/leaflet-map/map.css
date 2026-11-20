@@ -1,0 +1,35 @@
+html, body {
+  margin: 0;
+  overflow: hidden;
+}
+#map {
+  width: 100vw;
+  height: 100vh;
+  min-height: 220px;
+}
+body, #map {
+  background: #eeeadd;
+  font-family: system-ui, sans-serif;
+}
+#status {
+  position: absolute;
+  z-index: 500;
+  top: 50%;
+  left: 50%;
+  max-width: 65%;
+  width: max-content;
+  margin: 0;
+  transform: translate(-50%, -50%);
+  padding: 9px 12px;
+  border-radius: 6px;
+  background: #faf9f5;
+  color: #232518;
+  font-size: 13px;
+}
+.leaflet-control-attribution a {
+  color: #3f4f37;
+}
+.leaflet-bar a {
+  color: #232518;
+  background: #faf9f5;
+}
