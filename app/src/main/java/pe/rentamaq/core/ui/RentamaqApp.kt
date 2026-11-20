@@ -82,9 +82,9 @@ fun RentamaqApp(model: CatalogViewModel) {
     val horizontalInset = if (browseHome) Modifier.padding(horizontal = 20.dp) else Modifier
     val zones = equipment.map { it.zone }.distinct().sorted()
     val homeScroll = rememberLazyListState()
-    val resultsScroll = key(search, type, zone, showAll) { rememberLazyListState() }
+    val resultsScroll = key(type, zone, showAll) { rememberLazyListState() }
     val detailScroll = key(selectedId) { rememberLazyListState() }
-    val bookingsScroll = rememberLazyListState()
+    val bookingsScroll = key(accountId) { rememberLazyListState() }
     val matches = equipment.filter {
         (zone == null || it.zone == zone) && (type == null || it.type() == type) &&
             (it.name.searchKey().contains(query) || it.description.searchKey().contains(query))
@@ -320,10 +320,10 @@ fun RentamaqApp(model: CatalogViewModel) {
                 }
                 when (tab) {
                     0 -> if (selected == null) {
-                        item {
+                        item(key = "catalog-heading") {
                             Text(stringResource(R.string.headline), horizontalInset, style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                         }
-                        item {
+                        item(key = "catalog-search") {
                             Box(horizontalInset) {
                                 CatalogSearch(search, { search = it }, type, zone, zones) { nextType, nextZone ->
                                     type = nextType

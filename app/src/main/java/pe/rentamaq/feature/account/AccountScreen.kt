@@ -132,6 +132,11 @@ fun AccountScreen(
                         }
                     }
                 }
+                if (signedIn) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = session::signOut) { Text(stringResource(R.string.sign_out)) }
+                    }
+                }
                 AccountSection(R.string.reserve_equipment) {
                     AccountLink(R.string.browse_equipment, R.string.reserve_account_help, R.drawable.ic_search, onExplore)
                     AccountLink(R.string.bookings, R.string.bookings_account_help, R.drawable.ic_bookings, onBookings)
@@ -143,8 +148,12 @@ fun AccountScreen(
                             publishAfterSignIn = !signedIn
                             page = if (signedIn) AccountPage.PUBLISH else AccountPage.ACCESS
                         })
-                    if (signedIn && publications.isNotEmpty()) {
-                        Text(stringResource(R.string.my_publications), style = MaterialTheme.typography.titleSmall)
+                }
+                HorizontalDivider()
+                AccountLink(R.string.photo_credits, R.string.credits_account_help, R.drawable.ic_arrow,
+                    onOpen = { page = AccountPage.CREDITS })
+                if (signedIn && publications.isNotEmpty()) {
+                    AccountSection(R.string.my_publications) {
                         publications.forEach { machine ->
                             EquipmentResult(machine) { onOpen(machine) }
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -155,10 +164,6 @@ fun AccountScreen(
                         }
                     }
                 }
-                HorizontalDivider()
-                AccountLink(R.string.photo_credits, R.string.credits_account_help, R.drawable.ic_arrow,
-                    onOpen = { page = AccountPage.CREDITS })
-                if (signedIn) TextButton(onClick = session::signOut) { Text(stringResource(R.string.sign_out)) }
             }
             AccountPage.ACCESS -> {
                 val message = if (publishAfterSignIn) R.string.account_required_publish
