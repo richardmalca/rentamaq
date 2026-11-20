@@ -8,19 +8,23 @@ import kotlinx.coroutines.launch
 import pe.rentamaq.core.data.CatalogRepository
 import pe.rentamaq.core.data.local.Booking
 import pe.rentamaq.core.data.local.Equipment
+import pe.rentamaq.core.data.local.EquipmentBlock
+import pe.rentamaq.core.data.local.ServiceRecord
 
 class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() {
     val equipment = repository.equipment.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     val bookings = repository.bookings.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val blocks = repository.blocks.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val services = repository.services.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     init {
         viewModelScope.launch { repository.seed() }
     }
 
-    fun reserve(booking: Booking, onSaved: (Long?) -> Unit) {
+    fun reserve(booking: Booking, accountId: String, onSaved: (Long?) -> Unit) {
         viewModelScope.launch {
             val id = try {
-                repository.reserve(booking)
+                repository.reserve(booking, accountId)
             } catch (_: android.database.sqlite.SQLiteException) {
                 null
             }
@@ -28,14 +32,14 @@ class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() 
         }
     }
 
-    fun undo(id: Long) {
-        viewModelScope.launch { repository.undo(id) }
+    fun undo(id: Long, accountId: String) {
+        viewModelScope.launch { repository.undo(id, accountId) }
     }
 
-    fun changeBookingStatus(booking: Booking, next: String, onUpdated: (Boolean) -> Unit) {
+    fun changeBookingStatus(booking: Booking, next: String, accountId: String, onUpdated: (Boolean) -> Unit) {
         viewModelScope.launch {
             val updated = try {
-                repository.transition(booking, next)
+                repository.transition(booking, next, accountId)
             } catch (_: android.database.sqlite.SQLiteException) {
                 false
             }
@@ -43,10 +47,10 @@ class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() 
         }
     }
 
-    fun publish(equipment: Equipment, onSaved: (Int?) -> Unit) {
+    fun publish(equipment: Equipment, accountId: String, onSaved: (Int?) -> Unit) {
         viewModelScope.launch {
             val id = try {
-                repository.publish(equipment)
+                repository.publish(equipment, accountId)
             } catch (_: android.database.sqlite.SQLiteException) {
                 null
             }
@@ -54,21 +58,33 @@ class CatalogViewModel(private val repository: CatalogRepository) : ViewModel() 
         }
     }
 
-    fun undoPublication(id: Int) {
-        viewModelScope.launch { repository.undoPublication(id) }
+    fun undoPublication(id: Int, accountId: String) {
+        viewModelScope.launch { repository.undoPublication(id, accountId) }
     }
 
-    fun pay(booking: Booking, onUpdated: (Boolean) -> Unit) {
-        viewModelScope.launch { onUpdated(repository.pay(booking)) }
+    fun pay(booking: Booking, accountId: String, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.pay(booking, accountId)) }
     }
 
-    fun advanceRefund(booking: Booking, onUpdated: (Boolean) -> Unit) {
-        viewModelScope.launch { onUpdated(repository.advanceRefund(booking)) }
+    fun advanceRefund(booking: Booking, accountId: String, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.advanceRefund(booking, accountId)) }
     }
 
     fun messages(bookingId: Long) = repository.messages(bookingId)
 
-    fun sendMessage(booking: Booking, text: String, fromProvider: Boolean) {
-        viewModelScope.launch { repository.sendMessage(booking, text, fromProvider) }
+    fun sendMessage(booking: Booking, text: String, accountId: String) {
+        viewModelScope.launch { repository.sendMessage(booking, text, accountId) }
+    }
+
+    fun addBlock(block: EquipmentBlock, accountId: String, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.addBlock(block, accountId)) }
+    }
+
+    fun removeBlock(block: EquipmentBlock, accountId: String, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.removeBlock(block, accountId)) }
+    }
+
+    fun saveService(record: ServiceRecord, accountId: String, onUpdated: (Boolean) -> Unit) {
+        viewModelScope.launch { onUpdated(repository.saveService(record, accountId)) }
     }
 }

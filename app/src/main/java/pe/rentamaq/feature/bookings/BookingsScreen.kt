@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.core.data.*
 import pe.rentamaq.core.data.local.Booking
@@ -38,6 +39,10 @@ fun BookingsScreen(
     state: LazyListState,
     modifier: Modifier,
     model: CatalogViewModel,
+    accountId: String,
+    requestedEquipmentId: Int?,
+    onClearEquipment: () -> Unit,
+    accountName: (String) -> String?,
     onNotice: (Int) -> Unit,
     onExplore: () -> Unit,
     onCancel: (Booking) -> Unit
@@ -47,7 +52,10 @@ fun BookingsScreen(
     var contactId by rememberSaveable { mutableStateOf<Long?>(null) }
     var refundId by rememberSaveable { mutableStateOf<Long?>(null) }
     var payId by rememberSaveable { mutableStateOf<Long?>(null) }
-    var provider by rememberSaveable { mutableStateOf(false) }
+    var provider by rememberSaveable { mutableStateOf(requestedEquipmentId != null) }
+    var phaseFilter by rememberSaveable { mutableStateOf<BookingPhase?>(null) }
+    var refundFilter by rememberSaveable { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     var now by remember { mutableStateOf(LocalDateTime.now(bookingZone)) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -55,7 +63,15 @@ fun BookingsScreen(
             now = LocalDateTime.now(bookingZone)
         }
     }
-    val list = bookings.filter { it.phase(now).isInHistory() == history }
+    val accountBookings = bookings.filter {
+        if (provider) it.providerId == accountId && (requestedEquipmentId == null || it.equipmentId == requestedEquipmentId)
+        else it.customerId == accountId
+    }
+    val list = accountBookings.filter {
+        val phase = it.phase(now)
+        phase.isInHistory() == history && (phaseFilter == null || phaseFilter == phase) &&
+            (refundFilter == null || refundFilter == it.refundState)
+    }
     val ordered = if (history) list.sortedByDescending { it.endTime() } else {
         list.sortedWith(compareBy<Booking> { it.phase(now).ordinal }.thenBy { it.deadline() })
     }
@@ -72,18 +88,57 @@ fun BookingsScreen(
             Text(stringResource(R.string.bookings_intro), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(!provider, { provider = false }, { Text(stringResource(R.string.my_requests)) })
-                FilterChip(provider, { provider = true }, { Text(stringResource(R.string.received_requests)) })
+                FilterChip(!provider, {
+                    provider = false; phaseFilter = null; refundFilter = null; history = false
+                    if (requestedEquipmentId != null) onClearEquipment()
+                }, { Text(stringResource(R.string.my_requests)) })
+                FilterChip(provider, {
+                    provider = true; phaseFilter = null; refundFilter = null; history = false
+                }, { Text(stringResource(R.string.received_requests)) })
             }
             Spacer(Modifier.height(12.dp))
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf(R.string.upcoming_bookings, R.string.booking_history).forEachIndexed { index, label ->
                     SegmentedButton(
                         selected = history == (index == 1),
-                        onClick = { history = index == 1 },
+                        onClick = { history = index == 1; phaseFilter = null; refundFilter = null },
                         shape = SegmentedButtonDefaults.itemShape(index, 2, MaterialTheme.shapes.small)
                     ) { Text(stringResource(label)) }
                 }
+            }
+        }
+        if (provider) item {
+            ProviderSummary(
+                machine = equipment.find { it.id == requestedEquipmentId },
+                bookings = accountBookings,
+                now = now,
+                phaseFilter = phaseFilter,
+                refundFilter = refundFilter,
+                onClearMachine = onClearEquipment,
+                onPhase = {
+                    phaseFilter = if (phaseFilter == it) null else it
+                    refundFilter = null
+                    history = it.isInHistory()
+                    scope.launch { state.animateScrollToItem(2) }
+                },
+                onRefund = {
+                    refundFilter = if (refundFilter == it) null else it
+                    phaseFilter = null
+                    history = true
+                    scope.launch { state.animateScrollToItem(2) }
+                }
+            )
+        }
+        if (provider && (phaseFilter != null || refundFilter != null)) item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically) {
+                val label = phaseFilter?.label() ?: when (refundFilter) {
+                    "REQUESTED" -> R.string.refund_review_pending
+                    "REVIEW" -> R.string.refund_under_review
+                    else -> R.string.refund_paid_plural
+                }
+                Text(stringResource(label), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                TextButton(onClick = { phaseFilter = null; refundFilter = null }) { Text(stringResource(R.string.clear_filters)) }
             }
         }
         if (ordered.isEmpty()) item {
@@ -96,41 +151,44 @@ fun BookingsScreen(
         }
         items(ordered, key = { it.id }) { booking ->
             val phase = booking.phase(now)
-            BookingRecord(booking, equipment.find { it.id == booking.equipmentId || it.name == booking.equipmentName }, phase, provider,
+            val machine = if (booking.equipmentId != null) equipment.find { it.id == booking.equipmentId }
+                else equipment.find { it.name == booking.equipmentName }
+            BookingRecord(booking, machine, phase, provider,
+                contactName = accountName(if (provider) booking.customerId else booking.providerId),
                 onContact = { contactId = booking.id }, onCancel = { cancelId = booking.id },
                 onRefund = { refundId = booking.id }, onPay = { payId = booking.id },
                 onDecision = { next ->
-                    model.changeBookingStatus(booking, next) { ok ->
+                    model.changeBookingStatus(booking, next, accountId) { ok ->
                         onNotice(if (ok) R.string.booking_status_updated else R.string.booking_update_unavailable)
                     }
                 })
         }
     }
 
-    bookings.find { it.id == cancelId }?.let { booking ->
+    accountBookings.find { it.id == cancelId }?.let { booking ->
         CancelBookingDialog(booking, onDismiss = { cancelId = null }, onConfirm = {
             cancelId = null
             onCancel(booking)
         })
     }
-    bookings.find { it.id == contactId }?.let { booking ->
-        BookingConversation(booking, model, provider) { contactId = null }
+    accountBookings.find { it.id == contactId }?.let { booking ->
+        BookingConversation(booking, model, accountId, provider) { contactId = null }
     }
-    bookings.find { it.id == refundId }?.let { booking ->
+    accountBookings.find { it.id == refundId }?.let { booking ->
         RefundDialog(booking, provider, onAdvance = {
-            model.advanceRefund(booking) { ok ->
+            model.advanceRefund(booking, accountId) { ok ->
                 onNotice(if (ok) R.string.booking_status_updated else R.string.booking_update_unavailable)
             }
         }) { refundId = null }
     }
-    bookings.find { it.id == payId }?.let { booking ->
+    accountBookings.find { it.id == payId }?.let { booking ->
         BookingActionDialog(R.string.booking_payment, booking.equipmentName, onDismiss = { payId = null }) {
             BookingLine(R.string.estimated_amount, stringResource(R.string.price, booking.total))
             BookingLine(R.string.cancellation_fee, stringResource(R.string.price, minOf(40L, booking.total)))
             Text(stringResource(R.string.refund_window, 5), style = MaterialTheme.typography.bodySmall)
             Button(onClick = {
                 payId = null
-                model.pay(booking) { ok -> onNotice(if (ok) R.string.payment_registered else R.string.booking_update_unavailable) }
+                model.pay(booking, accountId) { ok -> onNotice(if (ok) R.string.payment_registered else R.string.booking_update_unavailable) }
             }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
                 Text(stringResource(R.string.confirm_payment))
             }
@@ -139,7 +197,7 @@ fun BookingsScreen(
 }
 
 @Composable
-private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingPhase, provider: Boolean,
+private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingPhase, provider: Boolean, contactName: String?,
     onContact: () -> Unit, onCancel: () -> Unit, onRefund: () -> Unit, onPay: () -> Unit, onDecision: (String) -> Unit) {
     val theme = MaterialTheme.colorScheme
     val accent = phase == BookingPhase.EXPIRING
@@ -163,6 +221,7 @@ private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingP
                 }
             }
             HorizontalDivider()
+            if (contactName != null) BookingLine(if (provider) R.string.message_customer else R.string.message_provider_role, contactName)
             BookingLine(R.string.start_label, booking.startTime()?.format(displayDate) ?: booking.start)
             BookingLine(R.string.end_label, booking.endTime()?.format(displayDate) ?: booking.end)
             if (accent) {
@@ -225,7 +284,7 @@ private fun BookingRecord(booking: Booking, machine: Equipment?, phase: BookingP
     }
 }
 
-private fun BookingPhase.label() = when (this) {
+internal fun BookingPhase.label() = when (this) {
     BookingPhase.EXPIRING -> R.string.booking_expiring
     BookingPhase.IN_PROGRESS -> R.string.booking_in_progress
     BookingPhase.CONFIRMED -> R.string.booking_confirmed
@@ -262,7 +321,7 @@ private fun CancelBookingDialog(booking: Booking, onDismiss: () -> Unit, onConfi
     }
 }
 
-private fun Booking.refundableAmount(): Long? {
+internal fun Booking.refundableAmount(): Long? {
     val paid = paidAmount ?: return null
     val fee = cancellationFee ?: return null
     return (paid - fee).coerceAtLeast(0L)
@@ -322,7 +381,7 @@ private fun RefundDialog(booking: Booking, provider: Boolean, onAdvance: () -> U
 }
 
 @Composable
-private fun BookingConversation(booking: Booking, model: CatalogViewModel, provider: Boolean, onDismiss: () -> Unit) {
+private fun BookingConversation(booking: Booking, model: CatalogViewModel, accountId: String, provider: Boolean, onDismiss: () -> Unit) {
     var message by rememberSaveable(booking.id) { mutableStateOf("") }
     val thread = remember(booking.id) { model.messages(booking.id) }
     val messages by thread.collectAsState(initial = emptyList())
@@ -346,7 +405,7 @@ private fun BookingConversation(booking: Booking, model: CatalogViewModel, provi
         }
         OutlinedTextField(message, { if (it.length <= 500) message = it }, Modifier.fillMaxWidth(),
             label = { Text(stringResource(R.string.write_message)) }, maxLines = 3)
-        Button(onClick = { model.sendMessage(booking, message, provider); message = "" },
+        Button(onClick = { model.sendMessage(booking, message, accountId); message = "" },
             enabled = message.isNotBlank(), modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.small) {
             Text(stringResource(R.string.send_message))
         }

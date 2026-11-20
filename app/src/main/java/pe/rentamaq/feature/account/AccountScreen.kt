@@ -24,12 +24,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import pe.rentamaq.R
 import pe.rentamaq.core.data.local.Equipment
+import pe.rentamaq.core.data.local.EquipmentBlock
+import pe.rentamaq.core.data.local.ServiceRecord
+import pe.rentamaq.feature.explore.CatalogViewModel
 import pe.rentamaq.feature.explore.EquipmentResult
 import pe.rentamaq.feature.explore.EquipmentType
 import pe.rentamaq.feature.explore.PhotoCredits
 import java.time.LocalDate
 
-private enum class AccountPage { HOME, ACCESS, REGISTER, EDIT, PUBLISH, CREDITS, SIGN_IN }
+private enum class AccountPage { HOME, ACCESS, REGISTER, EDIT, PUBLISH, MANAGE, CREDITS, SIGN_IN }
 
 private fun AccountEntry.page() = when (this) {
     AccountEntry.OPTIONS -> AccountPage.ACCESS
@@ -42,6 +45,9 @@ fun AccountScreen(
     modifier: Modifier,
     session: AccountSession,
     publications: List<Equipment>,
+    blocks: List<EquipmentBlock>,
+    services: List<ServiceRecord>,
+    model: CatalogViewModel,
     sectors: List<String>,
     requiredMessage: Int?,
     entry: AccountEntry,
@@ -50,6 +56,7 @@ fun AccountScreen(
     onExplore: () -> Unit,
     onBookings: () -> Unit,
     onOpen: (Equipment) -> Unit,
+    onViewReservations: (Equipment) -> Unit,
     onPublish: (Equipment, (Int?) -> Unit) -> Unit
 ) {
     val signedIn = session.signedIn
@@ -94,6 +101,7 @@ fun AccountScreen(
                     AccountPage.REGISTER -> R.string.create_account
                     AccountPage.EDIT -> R.string.edit_profile
                     AccountPage.PUBLISH -> if (editingId == null) R.string.publish_equipment else R.string.edit_publication
+                    AccountPage.MANAGE -> R.string.manage_equipment
                     AccountPage.CREDITS -> R.string.photo_credits
                     AccountPage.SIGN_IN -> R.string.sign_in
                     AccountPage.HOME -> R.string.account
@@ -139,8 +147,10 @@ fun AccountScreen(
                         Text(stringResource(R.string.my_publications), style = MaterialTheme.typography.titleSmall)
                         publications.forEach { machine ->
                             EquipmentResult(machine) { onOpen(machine) }
-                            TextButton(onClick = { editingId = machine.id; page = AccountPage.PUBLISH }) {
-                                Text(stringResource(R.string.edit_publication))
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                TextButton(onClick = { onViewReservations(machine) }) { Text(stringResource(R.string.view_machine_bookings)) }
+                                TextButton(onClick = { editingId = machine.id; page = AccountPage.MANAGE }) { Text(stringResource(R.string.manage_equipment)) }
+                                TextButton(onClick = { editingId = machine.id; page = AccountPage.PUBLISH }) { Text(stringResource(R.string.edit_publication)) }
                             }
                         }
                     }
@@ -156,25 +166,22 @@ fun AccountScreen(
                 AccountAccessPanel(R.string.account_access, message) { page = it.page() }
             }
             AccountPage.EDIT -> if (signedIn) {
+                var duplicate by rememberSaveable { mutableStateOf(false) }
                 EditLocalProfile(name, company, session.email, R.string.save_profile) { newName, isCompany, newEmail ->
-                    session.save(newName, isCompany, newEmail)
-                    signedInSuccessfully()
+                    duplicate = !session.save(newName, isCompany, newEmail)
+                    if (!duplicate) signedInSuccessfully()
                 }
+                if (duplicate) Text(stringResource(R.string.existing_device_account), color = MaterialTheme.colorScheme.error)
             }
             AccountPage.REGISTER -> if (!signedIn) {
                 AuthExplanation(requiredMessage, publishAfterSignIn)
-                if (session.email.isBlank()) {
-                    EditLocalProfile("", false, "", R.string.create_account) { newName, isCompany, newEmail ->
-                        session.save(newName, isCompany, newEmail)
-                        signedInSuccessfully()
-                    }
-                    TextButton(onClick = { page = AccountPage.SIGN_IN }) { Text(stringResource(R.string.already_have_account)) }
-                } else {
-                    Text(stringResource(R.string.existing_device_account))
-                    Button(onClick = { page = AccountPage.SIGN_IN }, shape = MaterialTheme.shapes.small) {
-                        Text(stringResource(R.string.sign_in))
-                    }
+                var duplicate by rememberSaveable { mutableStateOf(false) }
+                EditLocalProfile("", false, "", R.string.create_account) { newName, isCompany, newEmail ->
+                    duplicate = !session.save(newName, isCompany, newEmail)
+                    if (!duplicate) signedInSuccessfully()
                 }
+                if (duplicate) Text(stringResource(R.string.existing_device_account), color = MaterialTheme.colorScheme.error)
+                TextButton(onClick = { page = AccountPage.SIGN_IN }) { Text(stringResource(R.string.already_have_account)) }
             }
             AccountPage.PUBLISH -> if (signedIn) PublicationForm(sectors, saving, publications.find { it.id == editingId }) { machine, finished ->
                 saving = true
@@ -185,6 +192,14 @@ fun AccountScreen(
                 }
             }
             AccountPage.CREDITS -> PhotoCredits()
+            AccountPage.MANAGE -> {
+                val machine = publications.find { it.id == editingId }
+                val accountId = session.accountId
+                if (machine != null && accountId != null) {
+                    EquipmentManagement(machine, blocks.filter { it.equipmentId == machine.id },
+                        services.filter { it.equipmentId == machine.id }, model, accountId)
+                }
+            }
             AccountPage.SIGN_IN -> {
                 AuthExplanation(requiredMessage, publishAfterSignIn)
                 Text(stringResource(R.string.sign_in_description), style = MaterialTheme.typography.bodyMedium,
@@ -272,25 +287,11 @@ private fun PublicationForm(sectors: List<String>, saving: Boolean, original: Eq
     var hourly by rememberSaveable { mutableStateOf(original?.hourlyRate?.toString().orEmpty()) }
     var daily by rememberSaveable { mutableStateOf(original?.dailyRate?.toString().orEmpty()) }
     var photos by rememberSaveable { mutableStateOf(original?.photos.orEmpty()) }
-    var blockStart by rememberSaveable { mutableStateOf(original?.blockedFrom.orEmpty()) }
-    var blockEnd by rememberSaveable { mutableStateOf(original?.blockedUntil.orEmpty()) }
-    var serviceDate by rememberSaveable { mutableStateOf(original?.serviceDate.orEmpty()) }
-    var serviceHours by rememberSaveable { mutableStateOf(original?.serviceHours?.toString().orEmpty()) }
-    var serviceNotes by rememberSaveable { mutableStateOf(original?.serviceNotes.orEmpty()) }
-    var serviceProvider by rememberSaveable { mutableStateOf(original?.serviceProvider.orEmpty()) }
-    var nextService by rememberSaveable { mutableStateOf(original?.nextServiceDate.orEmpty()) }
-    var serviceDocument by rememberSaveable { mutableStateOf(original?.serviceDocument.orEmpty()) }
     val resolver = LocalContext.current.contentResolver
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { selected ->
         if (selected.isNotEmpty()) photos = selected.take(5).filter { uri ->
             runCatching { resolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }.isSuccess
         }.joinToString("\n")
-    }
-    val documentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { selected ->
-        if (selected != null && runCatching {
-                resolver.takePersistableUriPermission(selected, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }.isSuccess
-        ) serviceDocument = selected.toString()
     }
     var failed by rememberSaveable { mutableStateOf(false) }
     val hourRate = hourly.toIntOrNull()?.takeIf { it > 0 }
@@ -314,36 +315,9 @@ private fun PublicationForm(sectors: List<String>, saving: Boolean, original: Eq
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
         }
     }
-    Text(stringResource(R.string.availability), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    Text(stringResource(R.string.block_dates_help), style = MaterialTheme.typography.bodySmall)
-    PublicationDate(R.string.block_start, blockStart) { blockStart = it }
-    PublicationDate(R.string.block_end, blockEnd) { blockEnd = it }
-    if (blockStart.isNotBlank() || blockEnd.isNotBlank()) TextButton(onClick = { blockStart = ""; blockEnd = "" }) {
-        Text(stringResource(R.string.clear_block))
-    }
-    Text(stringResource(R.string.maintenance), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-    PublicationDate(R.string.service_date, serviceDate) { serviceDate = it }
-    OutlinedTextField(serviceHours, { if (it.length <= 8 && it.all { c -> c in '0'..'9' }) serviceHours = it },
-        Modifier.fillMaxWidth(), singleLine = true, label = { Text(stringResource(R.string.service_hours)) },
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-    OutlinedTextField(serviceNotes, { if (it.length <= 350) serviceNotes = it }, Modifier.fillMaxWidth(),
-        label = { Text(stringResource(R.string.service_notes)) }, minLines = 2)
-    OutlinedTextField(serviceProvider, { if (it.length <= 120) serviceProvider = it }, Modifier.fillMaxWidth(),
-        label = { Text(stringResource(R.string.service_provider)) }, singleLine = true)
-    PublicationDate(R.string.next_service, nextService) { nextService = it }
-    OutlinedButton(onClick = { documentPicker.launch(arrayOf("application/pdf")) }, shape = MaterialTheme.shapes.small) {
-        Text(stringResource(if (serviceDocument.isBlank()) R.string.attach_service_document else R.string.replace_service_document))
-    }
-    if (serviceDocument.isNotBlank()) TextButton(onClick = { serviceDocument = "" }) { Text(stringResource(R.string.remove_service_document)) }
     if (failed) Text(stringResource(R.string.publication_failed), color = MaterialTheme.colorScheme.error)
-    val validBlock = (blockStart.isBlank() && blockEnd.isBlank()) ||
-        (blockStart.isNotBlank() && blockEnd.isNotBlank() && blockStart <= blockEnd)
-    val hasService = listOf(serviceDate, serviceNotes, serviceHours, serviceProvider, nextService, serviceDocument).any { it.isNotBlank() }
-    val validService = !hasService || (serviceDate.isNotBlank() && serviceNotes.isNotBlank() &&
-        serviceHours.toIntOrNull() != null && (nextService.isBlank() || nextService >= serviceDate))
-    if (!validBlock || !validService) Text(stringResource(R.string.publication_dates_invalid), color = MaterialTheme.colorScheme.error)
     val canPublish = !saving && name.isNotBlank() && description.isNotBlank() && type != null && zone != null &&
-        hourRate != null && dayRate != null && validBlock && validService
+        hourRate != null && dayRate != null
     Button(
         onClick = {
             val category = type ?: return@Button
@@ -352,11 +326,7 @@ private fun PublicationForm(sectors: List<String>, saving: Boolean, original: Eq
             val dailyRate = dayRate ?: return@Button
             failed = false
             onPublish(Equipment(original?.id ?: 0, name.trim(), description.trim(), sector, hourlyRate, dailyRate, category.name,
-                owned = true, photos = photos.ifBlank { null }, blockedFrom = blockStart.ifBlank { null },
-                blockedUntil = blockEnd.ifBlank { null }, serviceDate = serviceDate.ifBlank { null },
-                serviceHours = serviceHours.toIntOrNull(), serviceNotes = serviceNotes.trim().ifBlank { null },
-                serviceProvider = serviceProvider.trim().ifBlank { null }, nextServiceDate = nextService.ifBlank { null },
-                serviceDocument = serviceDocument.ifBlank { null })) {
+                owned = true, photos = photos.ifBlank { null })) {
                 failed = !it
             }
         },
@@ -365,7 +335,7 @@ private fun PublicationForm(sectors: List<String>, saving: Boolean, original: Eq
 }
 
 @Composable
-private fun PublicationDate(label: Int, value: String, onSelect: (String) -> Unit) {
+internal fun PublicationDate(label: Int, value: String, onSelect: (String) -> Unit) {
     val context = LocalContext.current
     OutlinedButton(onClick = {
         val date = value.takeIf { it.isNotBlank() }?.let(LocalDate::parse) ?: LocalDate.now()

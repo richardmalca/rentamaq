@@ -18,10 +18,12 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import pe.rentamaq.R
 import pe.rentamaq.core.data.local.Equipment
+import pe.rentamaq.core.data.local.EquipmentBlock
+import pe.rentamaq.core.data.local.ServiceRecord
 import pe.rentamaq.feature.explore.type
 
 @Composable
-fun EquipmentDetail(machine: Equipment, canViewDocuments: Boolean) {
+fun EquipmentDetail(machine: Equipment, blocks: List<EquipmentBlock>, records: List<ServiceRecord>, canViewDocuments: Boolean) {
     val maintenance = when (machine.id) {
         1 -> listOf(
             MaintenanceEntry("12/11/2026", 4820, R.string.excavator_maintenance),
@@ -30,7 +32,6 @@ fun EquipmentDetail(machine: Equipment, canViewDocuments: Boolean) {
         2 -> listOf(MaintenanceEntry("05/11/2026", 3250, R.string.backhoe_maintenance))
         else -> emptyList()
     }
-    val ownMaintenance = machine.serviceNotes
 
     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
         EquipmentGallery(machine)
@@ -48,15 +49,21 @@ fun EquipmentDetail(machine: Equipment, canViewDocuments: Boolean) {
             machine.type()?.let { Text(stringResource(it.label), style = MaterialTheme.typography.labelLarge) }
         }
         DetailSection(R.string.maintenance) {
-            if (ownMaintenance != null) {
-                Text(stringResource(R.string.maintenance_metadata, machine.serviceDate.orEmpty(), machine.serviceHours ?: 0),
-                    style = MaterialTheme.typography.labelLarge)
-                Text(ownMaintenance, style = MaterialTheme.typography.bodyMedium)
-                machine.serviceProvider?.let { Text(stringResource(R.string.service_provider_summary, it)) }
-                machine.nextServiceDate?.let { Text(stringResource(R.string.next_service_summary, it)) }
-                if (canViewDocuments) ServiceDocumentActions(machine)
-                else if (machine.serviceDocument != null) {
-                    Text(stringResource(R.string.service_document_after_booking), style = MaterialTheme.typography.bodySmall)
+            if (records.isNotEmpty()) {
+                records.forEach { record ->
+                    Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = MaterialTheme.shapes.small) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(stringResource(R.string.maintenance_metadata, record.date, record.hours),
+                                style = MaterialTheme.typography.labelLarge)
+                            Text(record.notes, style = MaterialTheme.typography.bodyMedium)
+                            record.responsible?.let { Text(stringResource(R.string.service_provider_summary, it)) }
+                            record.nextReview?.let { Text(stringResource(R.string.next_service_summary, it)) }
+                            if (canViewDocuments) FlowRow { ServiceDocumentActions(machine, record) }
+                            else if (record.document != null) {
+                                Text(stringResource(R.string.service_document_after_booking), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                 }
             } else if (maintenance.isEmpty()) {
                 Text(stringResource(R.string.no_maintenance))
@@ -70,9 +77,9 @@ fun EquipmentDetail(machine: Equipment, canViewDocuments: Boolean) {
                 }
             }
         }
-        if (machine.blockedFrom != null && machine.blockedUntil != null) {
+        if (blocks.isNotEmpty()) {
             DetailSection(R.string.availability) {
-                Text(stringResource(R.string.unavailable_dates, machine.blockedFrom, machine.blockedUntil))
+                blocks.forEach { block -> Text(stringResource(R.string.unavailable_dates, block.firstDay, block.lastDay)) }
             }
         }
     }

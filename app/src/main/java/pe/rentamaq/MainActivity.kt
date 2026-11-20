@@ -14,6 +14,7 @@ import pe.rentamaq.core.data.local.migrateBookingStatus
 import pe.rentamaq.core.data.local.migrateAccountAndRefunds
 import pe.rentamaq.core.data.local.migrateLocalWorkflows
 import pe.rentamaq.core.data.local.migrateServiceDocuments
+import pe.rentamaq.core.data.local.migrateMarketplaceAccounts
 import pe.rentamaq.core.ui.RentamaqApp
 import pe.rentamaq.feature.explore.CatalogViewModel
 
@@ -25,7 +26,7 @@ class MainActivity : ComponentActivity() {
             val model = viewModel {
                 val database = Room.databaseBuilder(applicationContext, RentamaqDatabase::class.java, "rentamaq.db")
                     .addMigrations(migrateCatalogCategory, migrateBookingStatus, migrateAccountAndRefunds,
-                        migrateLocalWorkflows, migrateServiceDocuments)
+                        migrateLocalWorkflows, migrateServiceDocuments, migrateMarketplaceAccounts)
                     .build()
                 CatalogViewModel(CatalogRepository(database))
             }

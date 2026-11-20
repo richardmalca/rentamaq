@@ -4,6 +4,8 @@ import androidx.room.withTransaction
 import pe.rentamaq.core.data.local.Booking
 import pe.rentamaq.core.data.local.BookingMessage
 import pe.rentamaq.core.data.local.Equipment
+import pe.rentamaq.core.data.local.EquipmentBlock
+import pe.rentamaq.core.data.local.ServiceRecord
 import pe.rentamaq.core.data.local.RentamaqDatabase
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -12,41 +14,71 @@ class CatalogRepository(private val database: RentamaqDatabase) {
     private val dao = database.catalog()
     val equipment = dao.equipment()
     val bookings = dao.bookings()
+    val blocks = dao.blocks()
+    val services = dao.services()
 
     suspend fun seed() = database.withTransaction {
         dao.seed(demoEquipment)
-        dao.seedBookings(demoBookings())
+        demoEquipment.take(4).forEach { dao.completeLegacyEquipment(it.id, it.category, it.zone) }
+        val ids = demoEquipment.associate { it.name to it.id }
+        dao.seedBookings(demoBookings().map { it.copy(equipmentId = ids[it.equipmentName]) })
     }
 
-    suspend fun reserve(booking: Booking): Long? = database.withTransaction {
+    suspend fun reserve(booking: Booking, accountId: String): Long? = database.withTransaction {
         val equipment = booking.equipmentId?.let { dao.equipmentById(it) } ?: return@withTransaction null
+        if (equipment.ownerId == accountId) return@withTransaction null
+        val start = booking.startTime() ?: return@withTransaction null
+        val end = booking.endTime() ?: return@withTransaction null
+        val now = LocalDateTime.now(bookingZone)
+        if (start <= now || end <= start) return@withTransaction null
         if (hasConflict(booking, equipment)) return@withTransaction null
-        val deadline = minOf(booking.startTime() ?: return@withTransaction null, LocalDateTime.now(bookingZone).plusHours(24))
-        dao.insert(booking.copy(expiresAt = deadline.toString()))
+        val deadline = minOf(start, now.plusHours(24))
+        dao.insert(booking.copy(expiresAt = deadline.toString(), customerId = accountId, providerId = equipment.ownerId))
     }
 
-    suspend fun undo(id: Long) = database.withTransaction {
+    suspend fun undo(id: Long, accountId: String) = database.withTransaction {
+        if (dao.bookingSnapshot().none { it.id == id && it.customerId == accountId && it.status == pendingBooking }) return@withTransaction
         dao.removeMessages(id)
         dao.remove(id)
     }
 
-    suspend fun publish(equipment: Equipment): Int? = database.withTransaction {
-        if (equipment.id == 0) return@withTransaction dao.addPublication(equipment)
+    suspend fun publish(equipment: Equipment, accountId: String): Int? = database.withTransaction {
+        if (equipment.id == 0) return@withTransaction dao.addPublication(equipment.copy(ownerId = accountId))
         val current = dao.equipmentById(equipment.id) ?: return@withTransaction null
-        if (!current.owned) return@withTransaction null
-        val conflictsWithBooking = dao.bookingSnapshot().any {
-            it.status == confirmedBooking && (it.equipmentId == equipment.id ||
-                (it.equipmentId == null && it.equipmentName == current.name)) && overlapsBlock(it, equipment)
-        }
-        if (conflictsWithBooking) return@withTransaction null
-        equipment.id.takeIf { dao.updateEquipment(equipment.copy(owned = true)) == 1 }
+        if (current.ownerId != accountId) return@withTransaction null
+        equipment.id.takeIf { dao.updateEquipment(equipment.copy(owned = true, ownerId = accountId)) == 1 }
     }
 
-    suspend fun undoPublication(id: Int) = dao.removePublication(id)
+    suspend fun undoPublication(id: Int, accountId: String) = dao.removePublication(id, accountId)
 
-    suspend fun transition(booking: Booking, next: String): Boolean = database.withTransaction {
+    suspend fun addBlock(block: EquipmentBlock, accountId: String): Boolean = database.withTransaction {
+        if (dao.equipmentById(block.equipmentId)?.ownerId != accountId || block.firstDay > block.lastDay) return@withTransaction false
+        if (dao.blockSnapshot(block.equipmentId).any { it.firstDay <= block.lastDay && it.lastDay >= block.firstDay }) return@withTransaction false
+        if (dao.bookingSnapshot().any {
+                it.equipmentId == block.equipmentId && it.status == confirmedBooking && overlapsBlock(it, block)
+            }) return@withTransaction false
+        dao.insertBlock(block)
+        true
+    }
+
+    suspend fun removeBlock(block: EquipmentBlock, accountId: String): Boolean = database.withTransaction {
+        if (dao.equipmentById(block.equipmentId)?.ownerId != accountId) return@withTransaction false
+        val stored = dao.blockSnapshot(block.equipmentId).find { it.id == block.id } ?: return@withTransaction false
+        dao.deleteBlock(stored) == 1
+    }
+
+    suspend fun saveService(record: ServiceRecord, accountId: String): Boolean = database.withTransaction {
+        if (dao.equipmentById(record.equipmentId)?.ownerId != accountId) return@withTransaction false
+        if (record.id != 0L && dao.serviceById(record.id)?.equipmentId != record.equipmentId) return@withTransaction false
+        dao.saveService(record)
+        true
+    }
+
+    suspend fun transition(booking: Booking, next: String, accountId: String): Boolean = database.withTransaction {
         val current = dao.bookingSnapshot().find { it.id == booking.id } ?: return@withTransaction false
         if (current.status != booking.status) return@withTransaction false
+        val customerAction = next == cancelledBooking || current.status == cancelledBooking
+        if (accountId != if (customerAction) current.customerId else current.providerId) return@withTransaction false
         val now = LocalDateTime.now(bookingZone)
         when (next) {
             confirmedBooking -> {
@@ -66,31 +98,37 @@ class CatalogRepository(private val database: RentamaqDatabase) {
         dao.transitionBooking(current.id, current.status, next, now.toString().takeIf { cancelling }, refund) == 1
     }
 
-    suspend fun pay(booking: Booking): Boolean = database.withTransaction {
+    suspend fun pay(booking: Booking, accountId: String): Boolean = database.withTransaction {
         val current = dao.bookingSnapshot().find { it.id == booking.id } ?: return@withTransaction false
+        if (current.customerId != accountId) return@withTransaction false
         if (current.phase(LocalDateTime.now(bookingZone)) != BookingPhase.CONFIRMED) return@withTransaction false
         dao.pay(current.id) == 1
     }
 
-    suspend fun advanceRefund(booking: Booking): Boolean {
-        val current = booking.refundState ?: "REQUESTED"
+    suspend fun advanceRefund(booking: Booking, accountId: String): Boolean = database.withTransaction {
+        val stored = dao.bookingSnapshot().find { it.id == booking.id } ?: return@withTransaction false
+        if (stored.providerId != accountId) return@withTransaction false
+        val current = stored.refundState ?: return@withTransaction false
         val next = when (current) {
             "REQUESTED" -> "REVIEW"
             "REVIEW" -> "PAID"
-            else -> return false
+            else -> return@withTransaction false
         }
-        return dao.advanceRefund(booking.id, current, next) == 1
+        dao.advanceRefund(booking.id, current, next) == 1
     }
 
     fun messages(bookingId: Long) = dao.messages(bookingId)
 
-    suspend fun sendMessage(booking: Booking, text: String, fromProvider: Boolean) = database.withTransaction {
-        if (dao.bookingSnapshot().none { it.id == booking.id }) return@withTransaction
-        dao.addMessage(BookingMessage(bookingId = booking.id, text = text.trim(), fromProvider = fromProvider))
+    suspend fun sendMessage(booking: Booking, text: String, accountId: String) = database.withTransaction {
+        val stored = dao.bookingSnapshot().find { it.id == booking.id } ?: return@withTransaction
+        if (accountId != stored.customerId && accountId != stored.providerId) return@withTransaction
+        val content = text.trim().take(500)
+        if (content.isBlank()) return@withTransaction
+        dao.addMessage(BookingMessage(bookingId = booking.id, text = content, fromProvider = accountId == stored.providerId))
     }
 
     private suspend fun hasConflict(booking: Booking, machine: Equipment?): Boolean {
-        if (machine != null && overlapsBlock(booking, machine)) return true
+        if (machine != null && dao.blockSnapshot(machine.id).any { overlapsBlock(booking, it) }) return true
         val start = booking.startTime() ?: return true
         val end = booking.endTime() ?: return true
         return dao.bookingSnapshot().any { existing ->
@@ -104,9 +142,9 @@ class CatalogRepository(private val database: RentamaqDatabase) {
         }
     }
 
-    private fun overlapsBlock(booking: Booking, equipment: Equipment): Boolean {
-        val first = equipment.blockedFrom?.let(LocalDate::parse)?.atStartOfDay() ?: return false
-        val last = equipment.blockedUntil?.let(LocalDate::parse)?.plusDays(1)?.atStartOfDay() ?: return false
+    private fun overlapsBlock(booking: Booking, block: EquipmentBlock): Boolean {
+        val first = LocalDate.parse(block.firstDay).atStartOfDay()
+        val last = LocalDate.parse(block.lastDay).plusDays(1).atStartOfDay()
         val start = booking.startTime() ?: return false
         val end = booking.endTime() ?: return false
         return start < last && end > first

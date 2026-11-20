@@ -21,19 +21,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import pe.rentamaq.R
 import pe.rentamaq.core.data.local.Equipment
+import pe.rentamaq.core.data.local.ServiceRecord
 import java.io.OutputStream
 
 @Composable
-fun ServiceDocumentActions(machine: Equipment) {
+fun ServiceDocumentActions(machine: Equipment, record: ServiceRecord) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var feedback by remember { mutableStateOf<Int?>(null) }
     val title = stringResource(R.string.maintenance)
     val details = listOfNotNull(
-        stringResource(R.string.maintenance_metadata, machine.serviceDate.orEmpty(), machine.serviceHours ?: 0),
-        machine.serviceProvider?.let { stringResource(R.string.service_provider_summary, it) },
-        machine.serviceNotes,
-        machine.nextServiceDate?.let { stringResource(R.string.next_service_summary, it) }
+        stringResource(R.string.maintenance_metadata, record.date, record.hours),
+        record.responsible?.let { stringResource(R.string.service_provider_summary, it) },
+        record.notes,
+        record.nextReview?.let { stringResource(R.string.next_service_summary, it) }
     )
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { result ->
         if (result != null) scope.launch {
@@ -46,7 +47,7 @@ fun ServiceDocumentActions(machine: Equipment) {
             feedback = if (success) R.string.service_pdf_saved else R.string.service_pdf_failed
         }
     }
-    machine.serviceDocument?.let { document ->
+    record.document?.let { document ->
         TextButton(onClick = {
             val intent = Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(document), "application/pdf")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

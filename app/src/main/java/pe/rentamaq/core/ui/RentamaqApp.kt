@@ -57,6 +57,8 @@ private fun String.searchKey() = Normalizer.normalize(this, Normalizer.Form.NFD)
 fun RentamaqApp(model: CatalogViewModel) {
     val equipment by model.equipment.collectAsState()
     val bookings by model.bookings.collectAsState()
+    val blocks by model.blocks.collectAsState()
+    val services by model.services.collectAsState()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<Int?>(null) }
     var zone by rememberSaveable { mutableStateOf<String?>(null) }
@@ -67,6 +69,8 @@ fun RentamaqApp(model: CatalogViewModel) {
     var accountDestination by rememberSaveable { mutableStateOf<AccountDestination?>(null) }
     var accountEntry by rememberSaveable { mutableStateOf(AccountEntry.OPTIONS) }
     val session = rememberAccountSession()
+    val accountId = session.accountId
+    var bookingMachineId by rememberSaveable { mutableStateOf<Int?>(null) }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
@@ -104,12 +108,13 @@ fun RentamaqApp(model: CatalogViewModel) {
         onPrimaryContainer = ink, surfaceVariant = Color(0xFFF4F1E7), outlineVariant = Color(0xFFE7E3D9),
         onSurface = ink, onSurfaceVariant = Color(0xFF535246), outline = Color(0xFF777568)
     )) {
-        if (showBooking && session.signedIn && selected != null && !selected.owned) {
+        if (showBooking && accountId != null && selected != null && selected.ownerId != accountId) {
             BookingWizard(selected, onClose = { showBooking = false }) { booking, finished ->
-                model.reserve(booking) { id ->
+                model.reserve(booking, accountId) { id ->
                     finished(id != null)
                     if (id == null) return@reserve
                     showBooking = false
+                    bookingMachineId = null
                     tab = 1
                     scope.launch {
                         val result = snackbar.showSnackbar(
@@ -117,7 +122,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                             actionLabel = context.getString(R.string.undo),
                             duration = SnackbarDuration.Long
                         )
-                        if (result == SnackbarResult.ActionPerformed && session.signedIn) model.undo(id)
+                        if (result == SnackbarResult.ActionPerformed && session.accountId == accountId) model.undo(id, accountId)
                     }
                 }
             }
@@ -144,7 +149,7 @@ fun RentamaqApp(model: CatalogViewModel) {
             bottomBar = {
                 Column {
                     HorizontalDivider()
-                    if (inDetail && !selected.owned) {
+                    if (inDetail && selected.ownerId != accountId) {
                         Surface(color = MaterialTheme.colorScheme.surface) {
                             Button(
                                 onClick = {
@@ -169,6 +174,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                 onClick = {
                                     if (tab == index && index == 0) selectedId = null
                                     if (index != 2) accountDestination = null
+                                    if (index != 1 || tab != 1) bookingMachineId = null
                                     tab = index
                                 },
                                 colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent),
@@ -187,7 +193,7 @@ fun RentamaqApp(model: CatalogViewModel) {
             }
         ) { padding ->
             if (tab == 1) {
-                if (!session.signedIn) {
+                if (accountId == null) {
                     Column(Modifier.padding(padding).padding(20.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(stringResource(R.string.bookings), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
@@ -200,23 +206,25 @@ fun RentamaqApp(model: CatalogViewModel) {
                     }
                     return@Scaffold
                 }
-                BookingsScreen(bookings, equipment, bookingsScroll, Modifier.padding(padding), model,
+                BookingsScreen(bookings, equipment, bookingsScroll, Modifier.padding(padding), model, accountId,
+                    requestedEquipmentId = bookingMachineId, onClearEquipment = { bookingMachineId = null },
+                    accountName = session::profileName,
                     onNotice = { notice -> scope.launch { snackbar.showSnackbar(context.getString(notice)) } },
                     onExplore = { selectedId = null; tab = 0 },
                     onCancel = { booking ->
                         if (!booking.phase(LocalDateTime.now(bookingZone)).canCancel()) {
                             scope.launch { snackbar.showSnackbar(context.getString(R.string.cancel_unavailable)) }
                         } else {
-                            model.changeBookingStatus(booking, cancelledBooking) { updated ->
+                            model.changeBookingStatus(booking, cancelledBooking, accountId) { updated ->
                                 scope.launch {
                                     val result = snackbar.showSnackbar(
                                         context.getString(if (updated) R.string.booking_cancelled_notice else R.string.cancel_unavailable),
                                         actionLabel = if (updated && booking.paidAmount == null) context.getString(R.string.undo) else null,
                                         duration = SnackbarDuration.Long
                                     )
-                                    if (result == SnackbarResult.ActionPerformed && session.signedIn) {
+                                    if (result == SnackbarResult.ActionPerformed && session.accountId == accountId) {
                                         if (booking.phase(LocalDateTime.now(bookingZone)).canCancel()) {
-                                            model.changeBookingStatus(booking.copy(status = cancelledBooking), booking.status) { restored ->
+                                            model.changeBookingStatus(booking.copy(status = cancelledBooking), booking.status, accountId) { restored ->
                                                 scope.launch {
                                                     snackbar.showSnackbar(context.getString(
                                                         if (restored) R.string.booking_restored else R.string.restore_unavailable))
@@ -238,7 +246,10 @@ fun RentamaqApp(model: CatalogViewModel) {
                     modifier = Modifier.padding(padding),
                     session = session,
                     entry = accountEntry,
-                    publications = equipment.filter { it.owned }.asReversed(),
+                    publications = equipment.filter { it.ownerId == accountId }.asReversed(),
+                    blocks = blocks,
+                    services = services,
+                    model = model,
                     sectors = zones,
                     requiredMessage = when (accountDestination) {
                         AccountDestination.RESERVATION -> R.string.account_required_reserve
@@ -249,7 +260,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                         when (accountDestination) {
                             AccountDestination.RESERVATION -> {
                                 tab = 0
-                                showBooking = selected?.owned == false
+                                showBooking = selected != null && selected.ownerId != session.accountId
                             }
                             AccountDestination.BOOKINGS -> tab = 1
                             null -> Unit
@@ -261,11 +272,16 @@ fun RentamaqApp(model: CatalogViewModel) {
                         accountDestination = null
                     },
                     onExplore = { selectedId = null; tab = 0 },
-                    onBookings = { tab = 1 },
+                    onBookings = { bookingMachineId = null; tab = 1 },
                     onOpen = { machine -> selectedId = machine.id; tab = 0 },
+                    onViewReservations = { machine ->
+                        bookingMachineId = machine.id
+                        scope.launch { bookingsScroll.scrollToItem(0) }
+                        tab = 1
+                    },
                     onPublish = { machine, finished ->
-                        if (!session.signedIn) finished(null)
-                        else model.publish(machine) { id ->
+                        if (accountId == null) finished(null)
+                        else model.publish(machine, accountId) { id ->
                             finished(id)
                             if (id != null) scope.launch {
                                 val result = snackbar.showSnackbar(
@@ -273,7 +289,7 @@ fun RentamaqApp(model: CatalogViewModel) {
                                     actionLabel = if (machine.id == 0) context.getString(R.string.undo) else null,
                                     duration = SnackbarDuration.Long
                                 )
-                                if (result == SnackbarResult.ActionPerformed && session.signedIn) model.undoPublication(id)
+                                if (result == SnackbarResult.ActionPerformed && session.accountId == accountId) model.undoPublication(id, accountId)
                             }
                         }
                     }
@@ -348,8 +364,12 @@ fun RentamaqApp(model: CatalogViewModel) {
                         }
                     } else {
                         item(key = selected.id) {
-                            EquipmentDetail(selected, canViewDocuments = session.signedIn && (selected.owned || bookings.any {
-                                it.status == confirmedBooking && (it.equipmentId == selected.id ||
+                            EquipmentDetail(selected, blocks.filter {
+                                it.equipmentId == selected.id && it.lastDay >= LocalDateTime.now(bookingZone).toLocalDate().toString()
+                            },
+                                services.filter { it.equipmentId == selected.id },
+                                canViewDocuments = accountId != null && (selected.ownerId == accountId || bookings.any {
+                                it.customerId == accountId && it.status == confirmedBooking && (it.equipmentId == selected.id ||
                                     (it.equipmentId == null && it.equipmentName == selected.name))
                             }))
                         }
