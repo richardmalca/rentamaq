@@ -74,8 +74,10 @@
     <string name="choose_dates">Elegir fechas</string>
     <string name="review_booking">Revisar solicitud</string>
     <string name="confirm_request">Confirmar solicitud</string>
-    <string name="exit_request">¿Salir de la solicitud?</string>
-    <string name="leave">Salir</string>
+    <string name="cancel_action">Cancelar</string>
+    <string name="exit_request">¿Cancelar la solicitud?</string>
+    <string name="cancel_request_message">Se perderán la modalidad y el horario que elegiste.</string>
+    <string name="discard_request">Descartar solicitud</string>
     <string name="keep_editing">Seguir editando</string>
     <string name="photo_credits">Créditos de las fotos</string>
     <string name="photo_credit">Foto de %1$s · %2$s</string>

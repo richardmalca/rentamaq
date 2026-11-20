@@ -24,6 +24,7 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
 import pe.rentamaq.R
 import pe.rentamaq.core.data.local.Booking
 import pe.rentamaq.core.data.local.Equipment
@@ -80,6 +81,11 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
                 navigationIcon = {
                     IconButton(onClick = back, enabled = !saving) {
                         Icon(painterResource(R.drawable.ic_back), stringResource(R.string.cancel))
+                    }
+                },
+                actions = {
+                    TextButton(onClick = { abandon = true }, enabled = !saving) {
+                        Text(stringResource(R.string.cancel_action), fontWeight = FontWeight.SemiBold)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)
@@ -201,12 +207,39 @@ fun BookingWizard(machine: Equipment, onClose: () -> Unit, onSave: (Booking, (Bo
         }
     }
     if (abandon) {
-        AlertDialog(
-            onDismissRequest = { abandon = false },
-            title = { Text(stringResource(R.string.exit_request)) },
-            confirmButton = { TextButton(onClick = onClose) { Text(stringResource(R.string.leave)) } },
-            dismissButton = { TextButton(onClick = { abandon = false }) { Text(stringResource(R.string.keep_editing)) } }
-        )
+        CancelRequestDialog(machine, onKeepEditing = { abandon = false }, onCancel = onClose)
+    }
+}
+
+@Composable
+private fun CancelRequestDialog(machine: Equipment, onKeepEditing: () -> Unit, onCancel: () -> Unit) {
+    Dialog(onDismissRequest = onKeepEditing) {
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            shape = MaterialTheme.shapes.large
+        ) {
+            Column(
+                Modifier.fillMaxWidth().padding(22.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(stringResource(R.string.exit_request), style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.cancel_request_message), style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                BookingMachine(machine)
+                Button(
+                    onClick = onKeepEditing,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(stringResource(R.string.keep_editing), fontWeight = FontWeight.Bold)
+                }
+                TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text(stringResource(R.string.discard_request), color = MaterialTheme.colorScheme.error,
+                        fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
     }
 }
 
